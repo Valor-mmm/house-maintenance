@@ -40,6 +40,15 @@ async function pushTable(table: SyncableTable): Promise<void> {
   await db.outbox.bulkDelete(toRemove);
 }
 
+/** The sync-metadata fields every syncable row has, per docs/sync-design.md. */
+interface SyncRow {
+  id: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  photoBlobUrl?: string | null;
+  [key: string]: unknown;
+}
+
 /**
  * Delete is terminal; otherwise last-write-wins by server-assigned
  * updatedAt — EXCEPT `photoBlobUrl` on readings, which is merged on its
@@ -48,7 +57,7 @@ async function pushTable(table: SyncableTable): Promise<void> {
  * pulls without also giving it power to clobber an unrelated concurrent
  * field edit. See docs/sync-design.md "Photo attach".
  */
-function pickWinner(table: SyncableTable, existing: any, incoming: any): any {
+function pickWinner(table: SyncableTable, existing: SyncRow, incoming: SyncRow): SyncRow {
   const existingDeleted = existing.deletedAt != null;
   const incomingDeleted = incoming.deletedAt != null;
   const winner = existingDeleted || incomingDeleted
@@ -78,7 +87,7 @@ async function pullTable(table: SyncableTable): Promise<void> {
     if (!res.ok) return;
 
     const body = (await res.json()) as {
-      rows: any[];
+      rows: SyncRow[];
       nextCursor: SyncCursor | null;
       hasMore: boolean;
     };
@@ -86,7 +95,7 @@ async function pullTable(table: SyncableTable): Promise<void> {
     if (body.rows.length > 0) {
       await db.transaction("rw", dexieTable, async () => {
         for (const incoming of body.rows) {
-          const existing = await dexieTable.get(incoming.id);
+          const existing = (await dexieTable.get(incoming.id)) as SyncRow | undefined;
           await dexieTable.put(existing ? pickWinner(table, existing, incoming) : incoming);
         }
       });

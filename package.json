@@ -2,6 +2,7 @@
   "name": "house-maintenance",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "workspaces": [
     "api",
     "apps/web",
@@ -14,12 +15,23 @@
     "build:shared": "npm run build --workspace=packages/shared",
     "build:server-lib": "npm run build --workspace=packages/server-lib",
     "vercel-build": "npm run build:shared && npm run build:server-lib && npm run build:web",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:internal-packages": "npm run build:shared && npm run build:server-lib",
+    "typecheck": "npm run build:internal-packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "npm run build:internal-packages && npm run test --workspaces --if-present",
     "db:migrate": "node db/migrate.mjs",
     "db:seed-user": "node db/seed-user.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.6.3"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.9.0",
+    "jsdom": "^27.0.1",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "pg": "^8.13.1"

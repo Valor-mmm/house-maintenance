@@ -99,7 +99,7 @@ function toIso(v: unknown): string | null {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
-function rowToJson(spec: TableSpec, row: Record<string, any>): Record<string, unknown> {
+function rowToJson(spec: TableSpec, row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {
     id: row.id,
     updatedAt: toIso(row.updated_at),
@@ -112,12 +112,21 @@ function rowToJson(spec: TableSpec, row: Record<string, any>): Record<string, un
 }
 
 /**
- * Insert-or-update a row. `updated_at` is always set to `now()` here —
- * this function is the ONLY place a syncable row's updated_at is ever
+ * Insert-or-update a row. `updated_at` is always set here — this
+ * function is the ONLY place a syncable row's updated_at is ever
  * assigned, never trusting a client-supplied value (see
  * docs/sync-design.md). `deleted_at` is sticky: once set, a later push
  * that doesn't also carry a deletion can never clear it — delete is
  * terminal.
+ *
+ * Truncated to milliseconds (`date_trunc`), not bare `now()`: Postgres
+ * `timestamptz` has microsecond precision but a JS `Date` (and therefore
+ * every `updatedAt` a client ever sees, stores, or echoes back as a sync
+ * cursor) only has millisecond precision. Without truncating here, the
+ * value actually stored is always >= the value the client can ever
+ * present back, so the pull cursor's `(updated_at, id) > (cursor)`
+ * comparison would never exclude the very row that produced that cursor
+ * — pagination would re-deliver the last row of every page forever.
  */
 export async function upsertSyncRow(
   pool: pg.Pool,
@@ -126,21 +135,21 @@ export async function upsertSyncRow(
 ): Promise<void> {
   const entityCols = spec.columns.map((c) => c.column);
   const entityValues = spec.columns.map((c) => {
-    const v = (row as any)[c.key];
+    const v = row[c.key];
     return c.jsonb && v != null ? JSON.stringify(v) : v ?? null;
   });
 
   const allCols = ["id", ...entityCols, "deleted_at"];
-  const allValues = [row.id, ...entityValues, (row as any).deletedAt ?? null];
+  const allValues = [row.id, ...entityValues, row.deletedAt ?? null];
   const placeholders = allValues.map((_, i) => `$${i + 1}`).join(", ");
 
   const setClauses = entityCols.map((col) => `${col} = EXCLUDED.${col}`);
-  setClauses.push("updated_at = now()");
+  setClauses.push("updated_at = date_trunc('milliseconds', now())");
   setClauses.push(`deleted_at = COALESCE(${spec.sqlTable}.deleted_at, EXCLUDED.deleted_at)`);
 
   const text = `
     INSERT INTO ${spec.sqlTable} (${allCols.join(", ")}, updated_at)
-    VALUES (${placeholders}, now())
+    VALUES (${placeholders}, date_trunc('milliseconds', now()))
     ON CONFLICT (id) DO UPDATE SET ${setClauses.join(", ")}
   `;
   await pool.query(text, allValues);
@@ -173,21 +182,21 @@ export async function restoreSyncRow(
 ): Promise<void> {
   const entityCols = spec.columns.map((c) => c.column);
   const entityValues = spec.columns.map((c) => {
-    const v = (row as any)[c.key];
+    const v = row[c.key];
     return c.jsonb && v != null ? JSON.stringify(v) : v ?? null;
   });
 
   const allCols = ["id", ...entityCols, "deleted_at"];
-  const allValues = [row.id, ...entityValues, (row as any).deletedAt ?? null];
+  const allValues = [row.id, ...entityValues, row.deletedAt ?? null];
   const placeholders = allValues.map((_, i) => `$${i + 1}`).join(", ");
 
   const setClauses = entityCols.map((col) => `${col} = EXCLUDED.${col}`);
-  setClauses.push("updated_at = now()");
+  setClauses.push("updated_at = date_trunc('milliseconds', now())");
   setClauses.push("deleted_at = EXCLUDED.deleted_at");
 
   const text = `
     INSERT INTO ${spec.sqlTable} (${allCols.join(", ")}, updated_at)
-    VALUES (${placeholders}, now())
+    VALUES (${placeholders}, date_trunc('milliseconds', now()))
     ON CONFLICT (id) DO UPDATE SET ${setClauses.join(", ")}
   `;
   await pool.query(text, allValues);
