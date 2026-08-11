@@ -8,6 +8,7 @@ import {
   restoreFromBlobUrl,
   restoreFromBackupId,
 } from "../data/backup";
+import { exportReadingsCsv, exportTasksCsv } from "../data/export";
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -24,6 +25,60 @@ function formatBytes(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Plain-CSV export, distinct from the full backup archive above: a
+ * human-readable record (readings or completed/pending tasks) meant to
+ * be opened in a spreadsheet — e.g. for tax records or a utility bill
+ * dispute — not a disaster-recovery snapshot. See ../data/export.ts.
+ */
+function ExportSection() {
+  const [busy, setBusy] = useState<"readings" | "tasks" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleExport(kind: "readings" | "tasks") {
+    setBusy(kind);
+    setError(null);
+    try {
+      await (kind === "readings" ? exportReadingsCsv() : exportTasksCsv());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="border border-border bg-surface px-4 py-3 flex items-center gap-4 mb-6">
+      <div className="flex-1 min-w-0">
+        <div className="label-plate">Export data</div>
+        <p className="text-sm mt-0.5">
+          Download readings or tasks as a plain CSV file for a spreadsheet — e.g. tax records or a utility bill
+          dispute. For full disaster recovery, use the backup above instead.
+        </p>
+        {error && <p className="text-sm mt-1 text-danger">{error}</p>}
+      </div>
+      <div className="flex flex-col gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => void handleExport("readings")}
+          disabled={busy !== null}
+          className="border border-border font-mono text-xs tracking-wide px-3 py-2 hover:border-accent transition-colors disabled:opacity-50"
+        >
+          {busy === "readings" ? "Exporting…" : "Export readings (CSV)"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleExport("tasks")}
+          disabled={busy !== null}
+          className="border border-border font-mono text-xs tracking-wide px-3 py-2 hover:border-accent transition-colors disabled:opacity-50"
+        >
+          {busy === "tasks" ? "Exporting…" : "Export tasks (CSV)"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function Backups() {
@@ -123,6 +178,8 @@ export default function Backups() {
           {running ? "Backing up…" : "Back up now"}
         </button>
       </div>
+
+      <ExportSection />
 
       <div className="border border-border bg-surface mb-6">
         <div className="p-4 border-b border-border label-plate">History</div>

@@ -9,6 +9,8 @@ const shareOrDownloadBackup = vi.fn();
 const uploadRestoreArchive = vi.fn();
 const restoreFromBlobUrl = vi.fn();
 const restoreFromBackupId = vi.fn();
+const exportReadingsCsv = vi.fn();
+const exportTasksCsv = vi.fn();
 
 vi.mock("../data/backup", () => ({
   runBackup: (...args: unknown[]) => runBackup(...args),
@@ -17,6 +19,11 @@ vi.mock("../data/backup", () => ({
   uploadRestoreArchive: (...args: unknown[]) => uploadRestoreArchive(...args),
   restoreFromBlobUrl: (...args: unknown[]) => restoreFromBlobUrl(...args),
   restoreFromBackupId: (...args: unknown[]) => restoreFromBackupId(...args),
+}));
+
+vi.mock("../data/export", () => ({
+  exportReadingsCsv: (...args: unknown[]) => exportReadingsCsv(...args),
+  exportTasksCsv: (...args: unknown[]) => exportTasksCsv(...args),
 }));
 
 const Backups = (await import("./Backups")).default;
@@ -166,5 +173,40 @@ describe("Backups", () => {
     await user.click(await screen.findByRole("button", { name: "Restore this backup" }));
 
     expect(await screen.findByText(/run db:seed-user for bob/)).toBeInTheDocument();
+  });
+});
+
+describe("Export data", () => {
+  it("exports readings without touching the tasks export", async () => {
+    const user = userEvent.setup();
+    exportReadingsCsv.mockResolvedValue(undefined);
+    render(<Backups />);
+
+    await user.click(screen.getByRole("button", { name: "Export readings (CSV)" }));
+
+    await waitFor(() => expect(exportReadingsCsv).toHaveBeenCalledTimes(1));
+    expect(exportTasksCsv).not.toHaveBeenCalled();
+  });
+
+  it("exports tasks without touching the readings export", async () => {
+    const user = userEvent.setup();
+    exportTasksCsv.mockResolvedValue(undefined);
+    render(<Backups />);
+
+    await user.click(screen.getByRole("button", { name: "Export tasks (CSV)" }));
+
+    await waitFor(() => expect(exportTasksCsv).toHaveBeenCalledTimes(1));
+    expect(exportReadingsCsv).not.toHaveBeenCalled();
+  });
+
+  it("shows an error and re-enables the buttons when an export fails", async () => {
+    const user = userEvent.setup();
+    exportReadingsCsv.mockRejectedValue(new Error("Export failed."));
+    render(<Backups />);
+
+    await user.click(screen.getByRole("button", { name: "Export readings (CSV)" }));
+
+    expect(await screen.findByText("Export failed.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export tasks (CSV)" })).toBeEnabled();
   });
 });
