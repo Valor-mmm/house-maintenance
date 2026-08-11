@@ -38,15 +38,13 @@ test.describe("authenticated", () => {
     await page.getByRole("button", { name: "Log out" }).click();
 
     await expect(page).toHaveURL(/\/login$/);
-    // Not a second goto()-and-check-redirect: signInDirectly's
-    // addInitScript re-injects the token on every navigation by design
-    // (so authenticated specs stay signed in across page.reload()), which
-    // would silently re-authenticate this test past the very thing it's
-    // checking. Asserting the token itself is gone is the precise check;
-    // "an unauthenticated visit redirects to /login" is already covered
-    // by the sibling test above.
+    // logout() clears the session_present marker cookie itself (client-side,
+    // synchronous, not httpOnly) as its first step — see auth/token.ts.
     await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem("house-maintenance:token")))
-      .toBeNull();
+      .poll(async () => {
+        const cookies = await page.context().cookies();
+        return cookies.some((c) => c.name === "session_present");
+      })
+      .toBe(false);
   });
 });

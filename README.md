@@ -84,7 +84,7 @@ docs/            sync-design.md, period-derivation.md, deployment.md —
   `web-push` package), Neon Postgres (`@neondatabase/serverless`), Vercel
   Blob (direct browser-to-Blob upload for photos and backup archives),
   Vercel Cron (daily notification sweep + weekly backup).
-- **Auth** — username/password with `scrypt` hashing, JWT bearer sessions.
+- **Auth** — username/password with `scrypt` hashing, JWT session in an httpOnly cookie.
   Single-household app by design; see `docs/sync-design.md` for what that
   does and doesn't simplify.
 

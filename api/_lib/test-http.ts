@@ -10,23 +10,27 @@ export function mockReq(opts: {
   body?: unknown;
   query?: Record<string, string>;
   headers?: Record<string, string>;
+  cookies?: Record<string, string>;
 }): VercelRequest {
   return {
     method: opts.method ?? "POST",
     body: opts.body,
     query: opts.query ?? {},
     headers: opts.headers ?? {},
+    cookies: opts.cookies ?? {},
   } as unknown as VercelRequest;
 }
 
 export interface MockResult {
   status: number;
   body: unknown;
+  headers: Record<string, string | string[]>;
 }
 
 export function mockRes(): { res: VercelResponse; result: () => MockResult } {
   let statusCode = 200;
   let jsonBody: unknown;
+  const headers: Record<string, string | string[]> = {};
   const res = {
     status(code: number) {
       statusCode = code;
@@ -36,6 +40,13 @@ export function mockRes(): { res: VercelResponse; result: () => MockResult } {
       jsonBody = body;
       return res;
     },
+    setHeader(name: string, value: string | string[]) {
+      headers[name] = value;
+      return res;
+    },
+    end() {
+      return res;
+    },
   } as unknown as VercelResponse;
-  return { res, result: () => ({ status: statusCode, body: jsonBody }) };
+  return { res, result: () => ({ status: statusCode, body: jsonBody, headers }) };
 }

@@ -1,6 +1,6 @@
 import { upload } from "@vercel/blob/client";
 import type { BackupRecord, BackupListResponse, BackupRestoreResponse } from "@house/shared";
-import { authFetch, getToken } from "../auth/token";
+import { authFetch, hasSession } from "../auth/token";
 
 /**
  * All four backup actions live behind one consolidated /api/backup route
@@ -77,12 +77,11 @@ export async function shareOrDownloadBackup(backup: BackupRecord): Promise<Share
  * function-count cap) — sidesteps Vercel Functions' 4.5MB body limit.
  */
 export async function uploadRestoreArchive(file: File): Promise<string> {
-  const token = getToken();
-  if (!token) throw new Error("Not authenticated.");
+  if (!hasSession()) throw new Error("Not authenticated.");
   const result = await upload(`restore-uploads/${Date.now()}-${file.name}`, file, {
     access: "public",
     handleUploadUrl: "/api/blob/upload",
-    clientPayload: JSON.stringify({ authToken: token, purpose: "backup-restore" }),
+    clientPayload: JSON.stringify({ purpose: "backup-restore" }),
   });
   return result.url;
 }

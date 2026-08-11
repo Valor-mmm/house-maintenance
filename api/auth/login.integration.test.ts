@@ -23,17 +23,23 @@ afterAll(async () => {
 });
 
 describe("POST /api/auth/login", () => {
-  it("returns a session token and user for correct credentials", async () => {
+  it("returns the user and sets a session cookie for correct credentials", async () => {
     await createUser("correct-password");
     const req = mockReq({ body: { username: USERNAME, password: "correct-password" } });
     const { res, result } = mockRes();
 
     await handler(req, res);
 
-    const { status, body } = result();
+    const { status, body, headers } = result();
     expect(status).toBe(200);
     expect(body).toMatchObject({ user: { username: USERNAME } });
-    expect(typeof (body as { token: string }).token).toBe("string");
+    expect(body).not.toHaveProperty("token");
+
+    const setCookie = headers["Set-Cookie"];
+    expect(Array.isArray(setCookie)).toBe(true);
+    const cookies = setCookie as string[];
+    expect(cookies.some((c) => c.startsWith("session=") && c.includes("HttpOnly"))).toBe(true);
+    expect(cookies.some((c) => c.startsWith("session_present=1") && !c.includes("HttpOnly"))).toBe(true);
   });
 
   it("rejects an unknown username with 401", async () => {

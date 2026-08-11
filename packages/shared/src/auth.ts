@@ -13,8 +13,9 @@ export const loginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 
+// No token field: the session lives in an httpOnly cookie the server sets
+// directly (api/auth/login.ts), never in a JS-readable response body.
 export const loginResponseSchema = z.object({
-  token: z.string(),
   user: authUserSchema,
 });
 export type LoginResponse = z.infer<typeof loginResponseSchema>;

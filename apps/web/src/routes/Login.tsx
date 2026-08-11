@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { loginResponseSchema } from "@house/shared";
-import { setToken, getToken } from "../auth/token";
+import { hasSession } from "../auth/token";
 
 // Owned by the "PWA shell, offline sync wiring, auth screens" feature
 // slice. See the approved plan, Feature Scope #7.
@@ -16,7 +16,7 @@ export default function Login() {
   // redirect (not an imperative navigate() call during render — React
   // Router's own contract requires navigate() to run from an effect or
   // event handler, not the render body).
-  if (getToken()) {
+  if (hasSession()) {
     return <Navigate to="/" replace />;
   }
 
@@ -29,6 +29,7 @@ export default function Login() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
+        credentials: "same-origin",
       });
 
       if (!res.ok) {
@@ -43,7 +44,8 @@ export default function Login() {
         return;
       }
 
-      setToken(parsed.data.token);
+      // No client-side token to store: the response's Set-Cookie header
+      // already established the session (see auth/token.ts).
       navigate("/", { replace: true });
     } catch {
       setError("Couldn't reach the server. Check your connection and try again.");
