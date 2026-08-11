@@ -71,17 +71,18 @@ export async function shareOrDownloadBackup(backup: BackupRecord): Promise<Share
 
 /**
  * Uploads a restore archive (e.g. one pulled back down from Proton Drive)
- * straight to Vercel Blob via api/backup/upload.ts's signed-token flow —
- * same browser-direct-upload pattern as apps/web/src/data/photos.ts, and
- * for the same reason: sidesteps Vercel Functions' 4.5MB body limit.
+ * straight to Vercel Blob via api/blob/upload.ts's signed-token flow
+ * (purpose: "backup-restore" — that endpoint also serves the photo-upload
+ * flow in apps/web/src/data/photos.ts, merged into one file for Vercel's
+ * function-count cap) — sidesteps Vercel Functions' 4.5MB body limit.
  */
 export async function uploadRestoreArchive(file: File): Promise<string> {
   const token = getToken();
   if (!token) throw new Error("Not authenticated.");
   const result = await upload(`restore-uploads/${Date.now()}-${file.name}`, file, {
     access: "public",
-    handleUploadUrl: "/api/backup/upload",
-    clientPayload: JSON.stringify({ authToken: token }),
+    handleUploadUrl: "/api/blob/upload",
+    clientPayload: JSON.stringify({ authToken: token, purpose: "backup-restore" }),
   });
   return result.url;
 }

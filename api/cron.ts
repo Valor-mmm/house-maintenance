@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { put, del } from "@vercel/blob";
 import {
   computeMonthlySeries,
   computeGroupSeries,
@@ -9,19 +10,83 @@ import {
   type ReadingInterval,
   type MeterType,
 } from "@house/shared";
-import { getPool, loadPushSubscriptions, sendPushToAll, type PushSubRow } from "@house/server-lib";
+import {
+  getPool,
+  loadPushSubscriptions,
+  sendPushToAll,
+  buildBackupArchive,
+  BACKUP_ROW_COLUMNS,
+  type PushSubRow,
+  type BackupRow,
+} from "@house/server-lib";
 
 /**
- * Daily cron (see vercel.json's `crons` entry, 06:00 UTC): task/reading
- * due-date notifications + anomaly detection, all via push. Runs
- * server-side against Postgres directly — never against Dexie.
+ * Consolidated cron endpoint — the daily notification sweep and the
+ * weekly automated backup in one file, instead of two separate files as
+ * originally built. Same reason as api/backup.ts and api/sync.ts:
+ * Vercel's Hobby plan caps a deployment at 12 Serverless Functions.
+ *
+ * vercel.json has two `crons` entries, both pointing at `/api/cron`, each
+ * with its own schedule. Vercel doesn't pass which schedule triggered a
+ * given invocation as a query param — instead it sends an
+ * `x-vercel-cron-schedule` header carrying the exact cron expression, so
+ * that's what `resolveJob` matches against (must stay byte-identical to
+ * vercel.json's `schedule` strings). `?job=sweep` / `?job=backup` is also
+ * accepted, for manually testing either job via curl the way
+ * docs/deployment.md's verification steps do — there's no
+ * x-vercel-cron-schedule header on a manual request.
  *
  * Security: Vercel signs its own cron invocations with
  * `Authorization: Bearer $CRON_SECRET`. This is otherwise a public HTTPS
  * endpoint, so we fail closed (401) whenever CRON_SECRET is unset or the
  * header doesn't match — an unauthenticated caller must never be able to
- * trigger pushes or advance the notification-dedup state.
+ * trigger pushes, advance notification-dedup state, or spend a backup run.
  */
+const DAILY_SWEEP_SCHEDULE = "0 6 * * *";
+const BACKUP_SCHEDULE = "0 7 * * 0";
+
+function resolveJob(req: VercelRequest): "sweep" | "backup" | null {
+  if (req.query.job === "sweep") return "sweep";
+  if (req.query.job === "backup") return "backup";
+  const schedule = req.headers["x-vercel-cron-schedule"];
+  if (schedule === DAILY_SWEEP_SCHEDULE) return "sweep";
+  if (schedule === BACKUP_SCHEDULE) return "backup";
+  return null;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const expectedSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.authorization;
+  if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+
+  if (!process.env.DATABASE_URL) {
+    console.error("cron: DATABASE_URL is not set");
+    res.status(500).json({ error: "DATABASE_URL is not set" });
+    return;
+  }
+
+  const job = resolveJob(req);
+  if (job === "sweep") {
+    await runDailySweep(res);
+    return;
+  }
+  if (job === "backup") {
+    await runBackupCron(res);
+    return;
+  }
+  res.status(400).json({
+    error: "cannot determine which cron job to run (expected ?job=sweep|backup, or a matching x-vercel-cron-schedule header)",
+  });
+}
+
+// =====================================================================
+// Daily sweep: task/reading due-date notifications + anomaly detection,
+// all via push. Runs server-side against Postgres directly — never
+// against Dexie.
+// =====================================================================
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DUE_SOON_WINDOW_DAYS = 7; // mirrors Tasks.tsx's own (unexported) constant
@@ -69,19 +134,7 @@ function monthsBeforeUtc(d: Date, n: number): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 1));
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const expectedSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.authorization;
-  if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
-    res.status(401).json({ error: "unauthorized" });
-    return;
-  }
-
-  if (!process.env.DATABASE_URL) {
-    console.error("daily-sweep: DATABASE_URL is not set");
-    res.status(500).json({ error: "DATABASE_URL is not set" });
-    return;
-  }
+async function runDailySweep(res: VercelResponse): Promise<void> {
   const pool = getPool();
 
   // sendPush() throws synchronously (via its internal ensureConfigured())
@@ -352,5 +405,108 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err) {
     console.error("daily-sweep: run failed", err);
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "unknown error", ...summary });
+  }
+}
+
+// =====================================================================
+// Automated backup: weekly snapshot of the whole dataset + photos into
+// Blob, with retention pruning. See packages/server-lib/src/backup.ts.
+// =====================================================================
+
+const BACKUP_RETENTION_COUNT = 8;
+
+async function runBackupCron(res: VercelResponse): Promise<void> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.error("backup cron: BLOB_READ_WRITE_TOKEN is not set");
+    res.status(500).json({ error: "BLOB_READ_WRITE_TOKEN is not set" });
+    return;
+  }
+
+  const pool = getPool();
+  // Same up-front check as the daily sweep: sendPush() throws synchronously
+  // if VAPID_* env vars are missing.
+  const pushConfigured = Boolean(
+    process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT
+  );
+  if (!pushConfigured) {
+    console.error("backup cron: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT not fully set; push disabled for this run");
+  }
+
+  const { rows: created } = await pool.query<BackupRow>(
+    `INSERT INTO backups (kind, status) VALUES ('automated', 'running') RETURNING ${BACKUP_ROW_COLUMNS}`
+  );
+  const backupId = created[0].id;
+
+  const summary = { ok: true, backupId, prunedCount: 0, pushDelivered: false };
+
+  async function notify(title: string, body: string): Promise<void> {
+    if (!pushConfigured) return;
+    try {
+      const subs = await loadPushSubscriptions(pool);
+      const result = await sendPushToAll(pool, subs, { title, body, url: "/backups" });
+      summary.pushDelivered = result.delivered;
+    } catch (err) {
+      console.error("backup cron: failed to send push notification", err);
+    }
+  }
+
+  try {
+    const { buffer, manifest } = await buildBackupArchive(pool);
+    const pathname = `backups/${new Date().toISOString().replace(/[:.]/g, "-")}-automated-${backupId}.zip`;
+    const blob = await put(pathname, buffer, {
+      access: "public",
+      addRandomSuffix: false,
+      contentType: "application/zip",
+    });
+
+    await pool.query(
+      `UPDATE backups SET status = 'complete', blob_url = $1, blob_pathname = $2, size_bytes = $3,
+              table_counts = $4, photo_count = $5, completed_at = now()
+       WHERE id = $6`,
+      [blob.url, pathname, buffer.byteLength, JSON.stringify(manifest.tableCounts), manifest.photoCount, backupId]
+    );
+
+    // Failed runs leave a row with no blob to prune, but nothing else ever
+    // reaps them either — without this they'd accumulate forever. Kept
+    // separate from the `complete` retention below (different query, no
+    // shared OFFSET) so a backlog of failures can never push out a
+    // recent, actually-usable completed backup.
+    await pool.query(
+      `DELETE FROM backups WHERE id IN (
+         SELECT id FROM backups WHERE kind = 'automated' AND status = 'failed'
+         ORDER BY created_at DESC OFFSET 5
+       )`
+    );
+
+    const { rows: stale } = await pool.query<{ id: string; blob_pathname: string | null }>(
+      `SELECT id, blob_pathname FROM backups
+       WHERE kind = 'automated' AND status = 'complete'
+       ORDER BY created_at DESC
+       OFFSET $1`,
+      [BACKUP_RETENTION_COUNT]
+    );
+    for (const row of stale) {
+      if (row.blob_pathname) {
+        try {
+          await del(row.blob_pathname);
+        } catch (err) {
+          console.error(`backup cron: failed to delete stale blob ${row.blob_pathname}`, err);
+        }
+      }
+      await pool.query("DELETE FROM backups WHERE id = $1", [row.id]);
+    }
+    summary.prunedCount = stale.length;
+
+    await notify("Backup complete", `Weekly backup finished (${manifest.photoCount} photos). Tap to save a copy.`);
+
+    res.status(200).json(summary);
+  } catch (err) {
+    console.error(`backup cron ${backupId} failed`, err);
+    await pool.query(`UPDATE backups SET status = 'failed', error = $1, completed_at = now() WHERE id = $2`, [
+      err instanceof Error ? err.message : "unknown error",
+      backupId,
+    ]);
+    await notify("Backup failed", "The weekly automated backup failed — check the deployment logs.");
+    res.status(500).json({ ok: false, backupId, error: err instanceof Error ? err.message : "unknown error" });
   }
 }

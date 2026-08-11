@@ -28,7 +28,7 @@ async function pushTable(table: SyncableTable): Promise<void> {
     return;
   }
 
-  const res = await authFetch("/api/sync/push", {
+  const res = await authFetch("/api/sync?action=push", {
     method: "POST",
     body: JSON.stringify({ table, rows }),
   });
@@ -71,7 +71,7 @@ async function pullTable(table: SyncableTable): Promise<void> {
 
   let hasMore = true;
   while (hasMore) {
-    const res = await authFetch("/api/sync/pull", {
+    const res = await authFetch("/api/sync?action=pull", {
       method: "POST",
       body: JSON.stringify({ table, cursor }),
     });

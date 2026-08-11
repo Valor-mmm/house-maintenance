@@ -8,11 +8,11 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/daily-sweep",
+      "path": "/api/cron",
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/api/cron/backup",
+      "path": "/api/cron",
       "schedule": "0 7 * * 0"
     }
   ]

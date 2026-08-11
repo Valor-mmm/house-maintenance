@@ -82,17 +82,21 @@ which this setup gives you automatically.
   in `App.tsx`'s `InstallBanner`).
 - Enable notifications from the dashboard.
 - Manually trigger a cron run to test end-to-end without waiting for
-  06:00 UTC:
+  06:00 UTC. Both jobs live behind one consolidated endpoint
+  (`api/cron.ts` — see its top-of-file comment for why), disambiguated by
+  a `?job=` query param when triggered manually like this (Vercel's own
+  scheduled invocations disambiguate via an `x-vercel-cron-schedule`
+  header instead, set automatically, nothing to configure):
   ```
-  curl -X POST https://<your-domain>/api/cron/daily-sweep \
+  curl -X POST "https://<your-domain>/api/cron?job=sweep" \
     -H "Authorization: Bearer $CRON_SECRET"
   ```
   Check the JSON summary it returns, and confirm a real push notification
   arrives on your phone.
-- Same for the weekly backup cron (`api/cron/backup.ts`, see the
-  Backups page in the app for the manual/restore side of this feature):
+- Same for the weekly backup job (see the Backups page in the app for the
+  manual/restore side of this feature):
   ```
-  curl -X POST https://<your-domain>/api/cron/backup \
+  curl -X POST "https://<your-domain>/api/cron?job=backup" \
     -H "Authorization: Bearer $CRON_SECRET"
   ```
   Confirm it returns `"ok": true` and a new row shows up on `/backups`.
