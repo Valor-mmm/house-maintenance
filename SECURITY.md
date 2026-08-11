@@ -31,7 +31,7 @@ assumption needs revisiting first, everywhere, not endpoint-by-endpoint.
 - Secrets (`JWT_SECRET`, `CRON_SECRET`, VAPID keys, `DATABASE_URL`,
   `BLOB_READ_WRITE_TOKEN`) are read only from environment variables, never
   hardcoded, and `.env*` is git-ignored.
-- The backup/restore feature (`api/backup/*`, `packages/server-lib/src/backup.ts`)
+- The backup/restore feature (`api/backup.ts`, `packages/server-lib/src/backup.ts`)
   went through a dedicated review: the restore endpoint's archive-source
   URL is allowlisted to this project's own Blob storage host and prefixes
   (not an open fetch of any URL an attacker could supply), with a 200MB

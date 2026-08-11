@@ -2,21 +2,27 @@ import { upload } from "@vercel/blob/client";
 import type { BackupRecord, BackupListResponse, BackupRestoreResponse } from "@house/shared";
 import { authFetch, getToken } from "../auth/token";
 
+/**
+ * All four backup actions live behind one consolidated /api/backup route
+ * (see api/backup.ts) — Vercel's Hobby plan caps a deployment at 12
+ * Serverless Functions, and this project hit that cap with them as
+ * separate files.
+ */
 export async function runBackup(): Promise<BackupRecord> {
-  const res = await authFetch("/api/backup/run", { method: "POST" });
+  const res = await authFetch("/api/backup", { method: "POST" });
   if (!res.ok) throw new Error(`Backup failed (${res.status}).`);
   return res.json();
 }
 
 export async function listBackups(): Promise<BackupListResponse> {
-  const res = await authFetch("/api/backup/list");
+  const res = await authFetch("/api/backup");
   if (!res.ok) throw new Error(`Failed to load backups (${res.status}).`);
   return res.json();
 }
 
-/** Downloads a backup's archive bytes through the authenticated proxy — never the raw Blob URL (see api/backup/[id]/download.ts). */
+/** Downloads a backup's archive bytes through the authenticated proxy — never the raw Blob URL (see api/backup.ts). */
 async function fetchBackupFile(backup: BackupRecord): Promise<File> {
-  const res = await authFetch(`/api/backup/${backup.id}/download`);
+  const res = await authFetch(`/api/backup?action=download&id=${encodeURIComponent(backup.id)}`);
   if (!res.ok) throw new Error(`Failed to download backup (${res.status}).`);
   const blob = await res.blob();
   const filename = `house-maintenance-backup-${backup.createdAt.slice(0, 10)}.zip`;
@@ -81,13 +87,13 @@ export async function uploadRestoreArchive(file: File): Promise<string> {
 }
 
 export async function restoreFromBlobUrl(blobUrl: string): Promise<BackupRestoreResponse> {
-  const res = await authFetch("/api/backup/restore", { method: "POST", body: JSON.stringify({ blobUrl }) });
+  const res = await authFetch("/api/backup?action=restore", { method: "POST", body: JSON.stringify({ blobUrl }) });
   if (!res.ok) throw new Error(`Restore failed (${res.status}).`);
   return res.json();
 }
 
 export async function restoreFromBackupId(backupId: string): Promise<BackupRestoreResponse> {
-  const res = await authFetch("/api/backup/restore", { method: "POST", body: JSON.stringify({ backupId }) });
+  const res = await authFetch("/api/backup?action=restore", { method: "POST", body: JSON.stringify({ backupId }) });
   if (!res.ok) throw new Error(`Restore failed (${res.status}).`);
   return res.json();
 }
