@@ -1,11 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
-import type { ReadingInterval } from "@house/shared";
+import type { MeterType, Reading, ReadingInterval } from "@house/shared";
 import { db } from "../db/dexie";
 import GaugeTile from "../components/GaugeTile";
 import StatusRow, { type StatusRowProps } from "../components/StatusRow";
 import { fetchUnacknowledgedAnomalies, type AnomalyFlagWithTarget } from "../data/anomalies";
 import { enablePushNotifications } from "../data/push";
+
+const METERS_COLLAPSED_KEY = "dashboard.metersCollapsed";
+
+const METER_TYPE_LABELS: Record<MeterType, string> = {
+  electricity_in: "Electricity (in)",
+  electricity_out: "Electricity (out)",
+  water: "Water",
+  pressure: "Pressure",
+  custom: "Custom",
+};
+
+function formatValue(n: number, digits = 1): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
 
 // Owned by the "Dashboard + push notification cron" feature slice. Visual
 // structure/components (GaugeTile, StatusRow) are the approved design
@@ -88,12 +103,12 @@ export default function Dashboard() {
     });
   }, [taskInstances, now]);
 
-  // Latest capturedAt per meter, from the local reading history.
+  // Latest reading per meter, from the local reading history.
   const latestReadingByMeter = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, Reading>();
     for (const r of readings ?? []) {
       const existing = map.get(r.meterId);
-      if (!existing || r.capturedAt > existing) map.set(r.meterId, r.capturedAt);
+      if (!existing || r.capturedAt > existing.capturedAt) map.set(r.meterId, r);
     }
     return map;
   }, [readings]);
@@ -103,9 +118,21 @@ export default function Dashboard() {
       const last = latestReadingByMeter.get(m.id);
       if (!last) return true; // never read -> due
       const intervalDays = READING_INTERVAL_DAYS[m.readingInterval];
-      return now - new Date(last).getTime() >= intervalDays * DAY_MS;
+      return now - new Date(last.capturedAt).getTime() >= intervalDays * DAY_MS;
     });
   }, [meters, latestReadingByMeter, now]);
+
+  const sortedMeters = useMemo(() => [...(meters ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [meters]);
+
+  const [metersCollapsed, setMetersCollapsed] = useState(() => localStorage.getItem(METERS_COLLAPSED_KEY) === "1");
+
+  function toggleMetersCollapsed() {
+    setMetersCollapsed((collapsed) => {
+      const next = !collapsed;
+      localStorage.setItem(METERS_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }
 
   const overdueCount = overdueTasks.length + dueMeters.length;
   const dueSoonCount = dueSoonTasks.length;
@@ -130,7 +157,7 @@ export default function Dashboard() {
         title: `${m.name} reading`,
         meta: `Reading due · ${m.type}`,
         tone: "danger",
-        trailing: last ? `${daysBetween(new Date(last).getTime(), now)}d since last` : "never read",
+        trailing: last ? `${daysBetween(new Date(last.capturedAt).getTime(), now)}d since last` : "never read",
       };
     }),
     ...dueSoonTasks.map((t): AttentionRow => {
@@ -188,6 +215,51 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+
+      <section aria-label="Meters overview" className="mt-8">
+        <button
+          type="button"
+          onClick={toggleMetersCollapsed}
+          aria-expanded={!metersCollapsed}
+          className="w-full flex items-center justify-between gap-3 label-plate hover:text-accent-strong"
+        >
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block transition-transform"
+              style={{ transform: metersCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
+              aria-hidden="true"
+            >
+              ▾
+            </span>
+            Meters{meters ? ` (${meters.length})` : ""}
+          </span>
+          <span className="text-muted">{metersCollapsed ? "Show" : "Hide"}</span>
+        </button>
+
+        {!metersCollapsed && (
+          <div className="divide-y divide-border border-t border-b border-border mt-1">
+            {meters === undefined ? (
+              <div className="text-muted text-sm py-3">Loading…</div>
+            ) : sortedMeters.length === 0 ? (
+              <div className="text-muted text-sm py-3">No meters yet.</div>
+            ) : (
+              sortedMeters.map((m) => {
+                const last = latestReadingByMeter.get(m.id);
+                return (
+                  <Link key={m.id} to={`/meters/${m.id}`} className="block hover:bg-surface">
+                    <StatusRow
+                      title={m.name}
+                      meta={`${METER_TYPE_LABELS[m.type]} · ${last ? `last read ${formatDate(last.capturedAt)}` : "never read"}`}
+                      tone={dueMeters.some((d) => d.id === m.id) ? "danger" : "muted"}
+                      trailing={last ? `${formatValue(last.value)} ${m.unit}` : "—"}
+                    />
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
