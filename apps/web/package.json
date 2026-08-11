@@ -14,6 +14,7 @@
     "@fontsource/fraunces": "^5.1.0",
     "@fontsource/ibm-plex-mono": "^5.1.0",
     "@house/shared": "*",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^0.27.0",
     "dexie": "^4.0.10",
     "dexie-react-hooks": "^1.1.7",

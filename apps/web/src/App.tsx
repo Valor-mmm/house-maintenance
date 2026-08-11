@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import Dashboard from "./routes/Dashboard";
 import Meters from "./routes/Meters";
 import MeterDetail from "./routes/MeterDetail";
@@ -173,6 +174,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <Analytics />
       <div className="min-h-screen flex flex-col bg-bg text-ink">
         {/* Slim status strip — always shows the theme toggle; the rest
             (offline badge, logout) collapses away with nothing to report,
