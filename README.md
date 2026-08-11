@@ -99,3 +99,10 @@ vercel dev             # api/ functions locally (requires `vercel link` first)
 See [`docs/deployment.md`](docs/deployment.md) for a full walkthrough of
 standing up your own instance — Neon Postgres, Vercel Blob, VAPID keys,
 and the cron/env-var wiring, end to end.
+
+## Contributing
+
+`main` is protected — changes go through a PR with required CI checks
+(typecheck, lint, unit tests, build, integration tests). See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch/PR workflow and what
+each check covers.

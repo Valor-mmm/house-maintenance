@@ -72,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       request: req,
       token: blobToken,
       onBeforeGenerateToken: async (_pathname, clientPayloadRaw) => {
-        let clientPayload: { authToken?: string; readingId?: string; purpose?: string } = {};
+        let clientPayload: { authToken?: string; readingId?: string; purpose?: string };
         try {
           clientPayload = clientPayloadRaw ? JSON.parse(clientPayloadRaw) : {};
         } catch {

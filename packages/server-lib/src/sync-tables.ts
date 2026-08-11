@@ -99,7 +99,7 @@ function toIso(v: unknown): string | null {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
-function rowToJson(spec: TableSpec, row: Record<string, any>): Record<string, unknown> {
+function rowToJson(spec: TableSpec, row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {
     id: row.id,
     updatedAt: toIso(row.updated_at),
@@ -126,12 +126,12 @@ export async function upsertSyncRow(
 ): Promise<void> {
   const entityCols = spec.columns.map((c) => c.column);
   const entityValues = spec.columns.map((c) => {
-    const v = (row as any)[c.key];
+    const v = row[c.key];
     return c.jsonb && v != null ? JSON.stringify(v) : v ?? null;
   });
 
   const allCols = ["id", ...entityCols, "deleted_at"];
-  const allValues = [row.id, ...entityValues, (row as any).deletedAt ?? null];
+  const allValues = [row.id, ...entityValues, row.deletedAt ?? null];
   const placeholders = allValues.map((_, i) => `$${i + 1}`).join(", ");
 
   const setClauses = entityCols.map((col) => `${col} = EXCLUDED.${col}`);
@@ -173,12 +173,12 @@ export async function restoreSyncRow(
 ): Promise<void> {
   const entityCols = spec.columns.map((c) => c.column);
   const entityValues = spec.columns.map((c) => {
-    const v = (row as any)[c.key];
+    const v = row[c.key];
     return c.jsonb && v != null ? JSON.stringify(v) : v ?? null;
   });
 
   const allCols = ["id", ...entityCols, "deleted_at"];
-  const allValues = [row.id, ...entityValues, (row as any).deletedAt ?? null];
+  const allValues = [row.id, ...entityValues, row.deletedAt ?? null];
   const placeholders = allValues.map((_, i) => `$${i + 1}`).join(", ");
 
   const setClauses = entityCols.map((col) => `${col} = EXCLUDED.${col}`);

@@ -194,7 +194,7 @@ function MonthlyBarChart({ series, unit }: { series: PeriodConsumption[]; unit: 
           <YAxis tick={{ fill: "var(--color-text-muted)", fontSize: 11 }} />
           <Tooltip
             contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
-            formatter={(value: any) => (value == null ? "no data" : `${fmt(value)} ${unit}`)}
+            formatter={(value: unknown) => (typeof value === "number" ? `${fmt(value)} ${unit}` : "no data")}
           />
           <Bar dataKey="consumption" fill="var(--color-accent)" />
         </BarChart>

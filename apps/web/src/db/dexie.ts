@@ -73,6 +73,6 @@ class HouseDb extends Dexie {
 export const db = new HouseDb();
 
 /** Type-safe accessor for a Dexie table by its SyncableTable name. */
-export function tableFor(name: SyncableTable): Table<any, string> {
-  return (db as unknown as Record<SyncableTable, Table<any, string>>)[name];
+export function tableFor(name: SyncableTable): Table<Record<string, unknown>, string> {
+  return (db as unknown as Record<SyncableTable, Table<Record<string, unknown>, string>>)[name];
 }
