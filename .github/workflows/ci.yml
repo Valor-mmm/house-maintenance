@@ -1,9 +1,8 @@
-# Five required checks, run on every PR into main (and again on push to
-# main as a post-merge safety net). No end-to-end (Playwright) job yet —
-# driving the real PWA means either `vercel dev` (needs a linked Vercel
-# project, Blob token, VAPID keys, Postgres — heavy/flaky in CI) or a
-# parallel mock-API harness. Deferred as clearly-labeled follow-up work
-# rather than building something fragile here.
+# Five required checks (typecheck/lint/unit-tests/build/integration-tests),
+# run on every PR into main (and again on push to main as a post-merge
+# safety net). `e2e-tests` (Playwright) runs alongside them but is
+# deliberately not one of the required five — see its own comment below
+# for why, and CONTRIBUTING.md for the required-check list itself.
 name: CI
 
 on:
@@ -96,3 +95,29 @@ jobs:
       - run: npm run build:internal-packages
       - run: node db/migrate.mjs
       - run: npm run test:integration --workspace=api
+
+  # Not one of the five required checks: it's new (2026-08-11) and hasn't
+  # proven itself as non-flaky in CI yet the way the other five have.
+  # Promote it to required once it's had a run of clean history — see
+  # CONTRIBUTING.md. Uses the mock-API harness described in
+  # apps/web/playwright.config.ts (page.route interception, not a real
+  # Postgres/Blob/VAPID-backed deployment), which is what makes this
+  # cheap enough to run in CI at all.
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build:internal-packages
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e --workspace=apps/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
