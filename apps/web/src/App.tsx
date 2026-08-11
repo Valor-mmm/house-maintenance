@@ -8,7 +8,7 @@ import Tasks from "./routes/Tasks";
 import Backups from "./routes/Backups";
 import Login from "./routes/Login";
 import { startSyncManager } from "./sync/engine";
-import { getToken, clearToken } from "./auth/token";
+import { hasSession, logout } from "./auth/token";
 import { getStoredTheme, applyTheme, nextTheme, type ThemeChoice } from "./theme";
 
 const navItems = [
@@ -29,7 +29,7 @@ interface BeforeInstallPromptEvent extends Event {
 // Minimal guard for now; the PWA-shell/auth feature slice owns the real
 // login flow and can replace this with a proper auth context.
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  return getToken() ? <>{children}</> : <Navigate to="/login" replace />;
+  return hasSession() ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
 /** Small, unobtrusive "you're offline" badge — offline is expected/normal
@@ -79,25 +79,25 @@ function ThemeToggle() {
   );
 }
 
-/** Tiny logout affordance; only shown once a session token exists. Re-checks
+/** Tiny logout affordance; only shown once a session exists. Re-checks
  * on every navigation (via useLocation) so it appears/disappears promptly
  * around the login/logout redirects. */
 function LogoutControl() {
   const navigate = useNavigate();
-  useLocation(); // force re-render on route change so getToken() is re-read
-  const [token, setSessionToken] = useState(getToken());
+  useLocation(); // force re-render on route change so hasSession() is re-read
+  const [signedIn, setSignedIn] = useState(hasSession());
 
   useEffect(() => {
-    setSessionToken(getToken());
+    setSignedIn(hasSession());
   });
 
-  if (!token) return null;
+  if (!signedIn) return null;
 
   return (
     <button
       type="button"
-      onClick={() => {
-        clearToken();
+      onClick={async () => {
+        await logout();
         navigate("/login", { replace: true });
       }}
       className="label-plate hover:text-accent transition-colors"

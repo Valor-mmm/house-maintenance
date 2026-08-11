@@ -26,7 +26,7 @@ afterAll(async () => {
 });
 
 function authedReq(query: Record<string, string>, body: unknown) {
-  return mockReq({ query, headers: { authorization: `Bearer ${token}` }, body });
+  return mockReq({ query, cookies: { session: token }, body });
 }
 
 function readingRow(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -44,7 +44,7 @@ function readingRow(overrides: Partial<Record<string, unknown>> = {}): Record<st
 }
 
 describe("api/sync push+pull round trip", () => {
-  it("rejects a request without a bearer token", async () => {
+  it("rejects a request without a session cookie", async () => {
     const req = mockReq({ query: { action: "push" }, body: { table: "readings", rows: [] } });
     const { res, result } = mockRes();
 

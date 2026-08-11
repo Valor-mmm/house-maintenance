@@ -11,8 +11,8 @@ security contact beyond that.
 
 ## Threat model
 
-Single-user auth (username/password, `scrypt`-hashed, 30-day JWT bearer
-sessions). One household, one property, seeded by
+Single-user auth (username/password, `scrypt`-hashed, 30-day JWT session
+in an httpOnly cookie). One household, one property, seeded by
 `db/migrations/006_seed.sql`. `docs/sync-design.md` states this
 explicitly: the sync/merge model is "sound for one person syncing across
 their own two devices... not a general multi-user CRDT." Endpoints don't
@@ -23,9 +23,20 @@ assumption needs revisiting first, everywhere, not endpoint-by-endpoint.
 ## What's already in place
 
 - Every data-touching endpoint requires a valid session (`api/_lib/http.ts`'s
-  `requireSession`); cron endpoints require a separate `CRON_SECRET` bearer
-  token instead. All SQL is parameterized — no string-interpolated user
-  input anywhere.
+  `requireSession`, reading the `session` cookie); cron endpoints require a
+  separate `CRON_SECRET` bearer token instead. All SQL is parameterized —
+  no string-interpolated user input anywhere.
+- The session token lives only in an httpOnly, `SameSite=Strict` cookie
+  (`api/auth/login.ts` sets it, `api/auth/logout.ts` clears it) — never in
+  a JS-readable response body or `localStorage`, so an XSS bug can't
+  exfiltrate it by reading `document.cookie`. A second, non-httpOnly
+  `session_present` cookie carries no secret and exists purely so
+  client-side route guards (`apps/web/src/auth/token.ts`'s `hasSession()`)
+  can stay a synchronous check instead of pinging the server on every
+  navigation. `SameSite=Strict` was chosen over a CSRF token because the
+  app has no cross-origin state-changing entry points to begin with (no
+  third-party embeds, no OAuth-style redirect-back flows) — it closes the
+  gap without extra machinery.
 - Login has a basic per-username lockout (`db/migrations/008_login_lockout.sql`):
   5 failed attempts locks the account for 15 minutes.
 - Secrets (`JWT_SECRET`, `CRON_SECRET`, VAPID keys, `DATABASE_URL`,
@@ -37,6 +48,16 @@ assumption needs revisiting first, everywhere, not endpoint-by-endpoint.
   (not an open fetch of any URL an attacker could supply), with a 200MB
   streamed size cap; the photo-restore path validates the archive's
   reading-id shape before use.
+- Response security headers are set on every route in `vercel.json`:
+  a `Content-Security-Policy` (script-src restricted to `'self'`; the
+  theme-flash-prevention script lives at `public/theme-init.js` rather
+  than inline, specifically so CSP doesn't need a content hash),
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, `Cross-Origin-Opener-Policy`, and
+  `Strict-Transport-Security`. With the session token no longer
+  JS-readable (see above), CSP's script-src restriction is defense-in-depth
+  against a wider class of injected-script mischief, rather than the one
+  thing standing between an XSS bug and session theft.
 
 ## Accepted dependency debt
 

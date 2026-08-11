@@ -8,17 +8,20 @@ import type { Page } from "@playwright/test";
  * request leaves the browser.
  */
 
-const FAKE_TOKEN = "e2e.fake.token";
 const FAKE_USER = { id: "00000000-0000-0000-0000-0000000000e2", username: "e2e-user" };
+// The real session lives in an httpOnly cookie the app never reads from JS
+// (see apps/web/src/auth/token.ts) — client-side route guards only check
+// this non-secret marker, so it's the only piece these mocks need to fake.
+// Unlike the old localStorage+addInitScript approach, a real cookie added
+// via addCookies() doesn't get re-injected on every navigation, so it
+// behaves exactly like a genuine session for reload/logout specs alike.
+const SESSION_MARKER_COOKIE = "session_present";
 
-/** Sets the session token directly, bypassing the login form for specs that don't test login itself. */
+/** Sets the session marker directly, bypassing the login form for specs that don't test login itself. */
 export async function signInDirectly(page: Page): Promise<void> {
-  await page.addInitScript(
-    ([key, token]) => {
-      window.localStorage.setItem(key as string, token as string);
-    },
-    ["house-maintenance:token", FAKE_TOKEN]
-  );
+  await page.context().addCookies([
+    { name: SESSION_MARKER_COOKIE, value: "1", domain: "localhost", path: "/" },
+  ]);
 }
 
 /** Empty push/pull for every table — the app is local-first, so an empty sync round-trip is indistinguishable from a real server with nothing new to offer. */
@@ -54,12 +57,19 @@ export async function mockBackups(page: Page, backups: unknown[] = []): Promise<
 
 export async function mockLoginSuccess(page: Page): Promise<void> {
   await page.route("**/api/auth/login", (route) =>
-    route.fulfill({ json: { token: FAKE_TOKEN, user: FAKE_USER } })
+    route.fulfill({
+      json: { user: FAKE_USER },
+      headers: { "set-cookie": `${SESSION_MARKER_COOKIE}=1; Path=/` },
+    })
   );
 }
 
 export async function mockLoginFailure(page: Page, message = "Invalid username or password."): Promise<void> {
   await page.route("**/api/auth/login", (route) => route.fulfill({ status: 401, json: { error: message } }));
+}
+
+export async function mockLogout(page: Page): Promise<void> {
+  await page.route("**/api/auth/logout", (route) => route.fulfill({ status: 204 }));
 }
 
 /** Full harness for specs that just need to land on an authenticated page and not error. */
@@ -68,4 +78,5 @@ export async function mockAuthenticatedSession(page: Page): Promise<void> {
   await mockSync(page);
   await mockAnomalies(page);
   await mockBackups(page);
+  await mockLogout(page);
 }

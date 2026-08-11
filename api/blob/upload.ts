@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { verifySession } from "@house/server-lib";
-import { readJsonBody } from "../_lib/http.js";
+import { readJsonBody, getSessionCookie } from "../_lib/http.js";
 
 /**
  * Issues short-lived client upload tokens for two direct-to-Vercel-Blob
@@ -28,12 +28,10 @@ import { readJsonBody } from "../_lib/http.js";
  *
  * Auth note: the `@vercel/blob/client` `upload()` helper's request to
  * this route's `handleUploadUrl` has no option to carry custom headers,
- * so it can't be gated with the usual `requireSession` (Authorization
- * header) pattern used by every other endpoint in api/. Instead the
- * client embeds its session token in `clientPayload` (see
- * apps/web/src/data/photos.ts and apps/web/src/data/backup.ts), and
- * `onBeforeGenerateToken` below verifies it directly with `verifySession`
- * before minting an upload token, for both purposes alike.
+ * but it's a same-origin fetch, so the browser attaches the session
+ * cookie the same as any other request — `onBeforeGenerateToken` below
+ * reads it straight off `req` and verifies it with `verifySession` before
+ * minting an upload token, for both purposes alike.
  */
 const PURPOSE_CONFIG = {
   photo: {
@@ -72,18 +70,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       request: req,
       token: blobToken,
       onBeforeGenerateToken: async (_pathname, clientPayloadRaw) => {
-        let clientPayload: { authToken?: string; readingId?: string; purpose?: string };
+        const sessionToken = getSessionCookie(req);
+        if (!sessionToken) {
+          throw new Error("missing session cookie");
+        }
+        // Throws if the token is missing/invalid/expired — handleUpload
+        // propagates that as a rejected token request below.
+        await verifySession(sessionToken);
+
+        let clientPayload: { readingId?: string; purpose?: string };
         try {
           clientPayload = clientPayloadRaw ? JSON.parse(clientPayloadRaw) : {};
         } catch {
           throw new Error("invalid client payload");
         }
-        if (!clientPayload.authToken) {
-          throw new Error("missing session token");
-        }
-        // Throws if the token is missing/invalid/expired — handleUpload
-        // propagates that as a rejected token request below.
-        await verifySession(clientPayload.authToken);
 
         const purpose = clientPayload.purpose === "backup-restore" ? "backup-restore" : "photo";
         const config = PURPOSE_CONFIG[purpose];

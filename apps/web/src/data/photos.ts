@@ -3,7 +3,7 @@ import { upload } from "@vercel/blob/client";
 import type { ExifMetadata } from "@house/shared";
 import { db } from "../db/dexie";
 import { attachPhoto, syncTable } from "../sync/engine";
-import { getToken } from "../auth/token";
+import { hasSession } from "../auth/token";
 
 /**
  * Best-effort EXIF extraction for a captured/selected photo, matching
@@ -63,8 +63,7 @@ export async function uploadPendingPhoto(readingId: string): Promise<void> {
   const record = await db.photoBlobs.get(readingId);
   if (!record || record.uploadStatus === "uploaded") return;
 
-  const token = getToken();
-  if (!token) {
+  if (!hasSession()) {
     console.error(`cannot upload photo for reading ${readingId}: not authenticated`);
     await db.photoBlobs.update(readingId, { uploadStatus: "failed" });
     return;
@@ -84,11 +83,10 @@ export async function uploadPendingPhoto(readingId: string): Promise<void> {
     const result = await upload(pathname, record.blob, {
       access: "public",
       handleUploadUrl: "/api/blob/upload",
-      // The @vercel/blob client `upload()` helper has no option to add
-      // custom headers to its handleUploadUrl request, so the session
-      // token rides along in clientPayload instead and is verified
-      // server-side in api/blob/upload.ts's onBeforeGenerateToken.
-      clientPayload: JSON.stringify({ authToken: token, readingId }),
+      // Session auth rides along as a same-origin cookie automatically —
+      // see api/blob/upload.ts's onBeforeGenerateToken. clientPayload just
+      // carries the reading id.
+      clientPayload: JSON.stringify({ readingId }),
     });
     await attachPhoto(readingId, result.url); // also sets uploadStatus: "uploaded"
   } catch (err) {

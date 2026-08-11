@@ -3,7 +3,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import Login from "./Login";
-import { clearToken, getToken } from "../auth/token";
+
+function clearSessionMarker() {
+  document.cookie = "session_present=; path=/; max-age=0";
+}
 
 function renderLogin() {
   return render(
@@ -18,25 +21,29 @@ function renderLogin() {
 
 describe("Login", () => {
   beforeEach(() => {
-    clearToken();
+    clearSessionMarker();
     vi.stubGlobal("fetch", vi.fn());
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearSessionMarker();
   });
 
   it("redirects to the dashboard immediately if already authenticated", () => {
-    localStorage.setItem("house-maintenance:token", "existing-token");
+    // Real logins get this cookie from the server's Set-Cookie response
+    // header (see auth/token.ts) — jsdom's mocked fetch here doesn't go
+    // through a real network stack, so this is the direct equivalent.
+    document.cookie = "session_present=1; path=/";
     renderLogin();
     expect(screen.getByText("Dashboard placeholder")).toBeInTheDocument();
   });
 
-  it("stores the token and navigates to the dashboard on a successful login", async () => {
+  it("navigates to the dashboard on a successful login", async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ token: "abc.def.ghi", user: { id: "00000000-0000-0000-0000-0000000000aa", username: "alice" } }),
+        JSON.stringify({ user: { id: "00000000-0000-0000-0000-0000000000aa", username: "alice" } }),
         { status: 200 }
       )
     );
@@ -47,7 +54,6 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => expect(screen.getByText("Dashboard placeholder")).toBeInTheDocument());
-    expect(getToken()).toBe("abc.def.ghi");
 
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("/api/auth/login");
@@ -67,7 +73,6 @@ describe("Login", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid username or password.");
     expect(screen.queryByText("Dashboard placeholder")).not.toBeInTheDocument();
-    expect(getToken()).toBeNull();
   });
 
   it("shows a connectivity message when the request itself fails", async () => {

@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { loginRequestSchema, type LoginResponse } from "@house/shared";
 import { getPool, verifyPassword, signSession } from "@house/server-lib";
-import { readJsonBody } from "../_lib/http.js";
+import { readJsonBody, setSessionCookies } from "../_lib/http.js";
 
 /**
  * Escalating per-username lockout (db/migrations/008_login_lockout.sql) —
@@ -71,6 +71,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   await pool.query("update users set failed_login_count = 0, locked_until = null where id = $1", [user.id]);
 
   const token = await signSession({ userId: user.id, username: user.username });
-  const body: LoginResponse = { token, user: { id: user.id, username: user.username } };
+  // The session lives in an httpOnly cookie, never in the response body —
+  // see SECURITY.md on why (localStorage/JS-readable tokens are an XSS
+  // exfiltration target).
+  setSessionCookies(res, token);
+  const body: LoginResponse = { user: { id: user.id, username: user.username } };
   res.status(200).json(body);
 }
