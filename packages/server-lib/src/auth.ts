@@ -47,7 +47,12 @@ export async function signSession(payload: SessionPayload): Promise<string> {
 }
 
 export async function verifySession(token: string): Promise<SessionPayload> {
-  const { payload } = await jwtVerify(token, jwtSecret());
+  // Explicit algorithms allowlist as defense-in-depth: jose already
+  // rejects an algorithm-family mismatch against an HMAC key by default,
+  // but pinning HS256 specifically (rather than accepting any HMAC
+  // variant) costs nothing and removes any doubt, flagged in a
+  // pre-public-repo security review.
+  const { payload } = await jwtVerify(token, jwtSecret(), { algorithms: ["HS256"] });
   if (typeof payload.sub !== "string" || typeof payload.username !== "string") {
     throw new Error("malformed session token");
   }

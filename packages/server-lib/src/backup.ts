@@ -26,6 +26,16 @@ const PHOTO_CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   heif: "image/heif",
 };
 
+/**
+ * A `photos/<readingId>.<ext>` zip entry's `readingId` is attacker-shaped
+ * input from an uploaded archive — it's only ever used as a parameterized
+ * SQL value and an in-memory Blob pathname segment (fflate never touches
+ * the filesystem, so classic zip-slip doesn't apply), but there's no
+ * reason to accept anything that isn't actually a UUID shape before using
+ * it at all. Flagged in a pre-public-repo security review.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function jsonFile(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value));
 }
@@ -275,6 +285,10 @@ export async function restoreBackupArchive(pool: pg.Pool, archive: Buffer): Prom
     const readingId = dot === -1 ? filename : filename.slice(0, dot);
     const ext = dot === -1 ? "jpg" : filename.slice(dot + 1).toLowerCase();
     const contentType = PHOTO_CONTENT_TYPE_BY_EXTENSION[ext] ?? "application/octet-stream";
+    if (!UUID_RE.test(readingId)) {
+      console.error(`restoreBackupArchive: skipping photo entry with a non-UUID reading id: ${path}`);
+      continue;
+    }
     try {
       // Only fill in a MISSING photo — never re-upload/replace one the
       // reading already has. Merge-only restore is meant to backfill
