@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design direction — "Field Instrument": calm, precise, dependable, like a
+  well-made analog meter or cockpit panel rather than a SaaS dashboard.
+  Hairline borders instead of shadows, tabular numerals, a single
+  confident copper accent (the "needle" color), restrained status colors
+  used sparingly. Feature-slice screens should reuse these tokens rather
+  than inventing new colors — see the .gauge-arc / .tick-rule utilities
+  below for the two recurring decorative motifs.
+*/
+
+:root {
+  --color-bg: #f4f1ea;
+  --color-surface: #fbf9f4;
+  --color-border: #d8d2c4;
+  --color-text: #1e1b16;
+  --color-text-muted: #746c5c;
+  --color-accent: #bd6b2f;
+  --color-accent-strong: #9a5220;
+  --color-good: #3f7d58;
+  --color-warn: #a9781f;
+  --color-danger: #b94a3d;
+
+  --font-display: "Fraunces", ui-serif, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #16181b;
+    --color-surface: #1d2024;
+    --color-border: #33363c;
+    --color-text: #ede9e0;
+    --color-text-muted: #96938c;
+    --color-accent: #e08a4c;
+    --color-accent-strong: #f0a468;
+    --color-good: #6fbf8b;
+    --color-warn: #d6b34c;
+    --color-danger: #e0776a;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  /* Faint blueprint-grid texture — an instrument-panel cue, never loud enough to fight content. */
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--color-text) 4%, transparent) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--color-text) 4%, transparent) 0 1px, transparent 1px 32px);
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background-color: var(--color-accent);
+  color: var(--color-surface);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Decorative divider with ruler ticks — use between sections, not inside cards. */
+.tick-rule {
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--color-border) 0 1px,
+    transparent 1px 8px
+  );
+}
+
+/* Nameplate-style label: small caps, tracked out, muted — for field labels on data. */
+.label-plate {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.vercel/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+coverage/
+*.tsbuildinfo
+.playwright-mcp/
+.vercel
+.env*
+
+# Claude Code local tool state — session locks, cached skill docs. Not
+# project source.
+.agents/
+.claude/
+skills-lock.json

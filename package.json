@@ -1,0 +1,30 @@
+{
+  "name": "house-maintenance",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "api",
+    "apps/web",
+    "packages/shared",
+    "packages/server-lib"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "build:server-lib": "npm run build --workspace=packages/server-lib",
+    "vercel-build": "npm run build:shared && npm run build:server-lib && npm run build:web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:migrate": "node db/migrate.mjs",
+    "db:seed-user": "node db/seed-user.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
