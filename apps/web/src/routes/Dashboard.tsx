@@ -18,8 +18,90 @@ const METER_TYPE_LABELS: Record<MeterType, string> = {
   custom: "Custom",
 };
 
+const METER_TONE_VAR: Record<"good" | "warn" | "danger" | "muted", string> = {
+  good: "var(--color-good)",
+  warn: "var(--color-warn)",
+  danger: "var(--color-danger)",
+  muted: "var(--color-text-muted)",
+};
+
 function formatValue(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+/** Small line-icon per meter type — same thin-stroke, no-fill vocabulary as GaugeTile's dial. */
+function MeterTypeIcon({ type }: { type: MeterType }) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth: 1.6,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  switch (type) {
+    case "electricity_in":
+    case "electricity_out":
+      return (
+        <svg {...common} aria-hidden="true">
+          <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
+        </svg>
+      );
+    case "water":
+      return (
+        <svg {...common} aria-hidden="true">
+          <path d="M12 3s7 7.4 7 12a7 7 0 1 1-14 0c0-4.6 7-12 7-12z" />
+        </svg>
+      );
+    case "pressure":
+      return (
+        <svg {...common} aria-hidden="true">
+          <circle cx="12" cy="13" r="8" />
+          <path d="M12 13 16 9" />
+          <path d="M9 5h6" />
+        </svg>
+      );
+    case "custom":
+    default:
+      return (
+        <svg {...common} aria-hidden="true">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 8v8M8 12h8" />
+        </svg>
+      );
+  }
+}
+
+/** Hand-rolled trend line for the last few readings — deliberately not recharts (too heavy for a tile-sized multiple). */
+function Sparkline({ values, tone }: { values: number[]; tone: "good" | "warn" | "danger" | "muted" }) {
+  const w = 96;
+  const h = 28;
+  if (values.length < 2) {
+    return (
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+        <line x1={4} y1={h / 2} x2={w - 4} y2={h / 2} stroke="var(--color-border)" strokeWidth={1} strokeDasharray="2 3" />
+      </svg>
+    );
+  }
+  const pad = 3;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const points = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return [x, y] as const;
+  });
+  const path = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const [lastX, lastY] = points[points.length - 1];
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+      <path d={path} fill="none" stroke={METER_TONE_VAR[tone]} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lastX} cy={lastY} r={2} fill={METER_TONE_VAR[tone]} />
+    </svg>
+  );
 }
 
 // Owned by the "Dashboard + push notification cron" feature slice. Visual
@@ -123,6 +205,18 @@ export default function Dashboard() {
   }, [meters, latestReadingByMeter, now]);
 
   const sortedMeters = useMemo(() => [...(meters ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [meters]);
+
+  // Per-meter reading history, oldest first, for the dashboard sparklines.
+  const readingsByMeter = useMemo(() => {
+    const map = new Map<string, Reading[]>();
+    for (const r of readings ?? []) {
+      const arr = map.get(r.meterId);
+      if (arr) arr.push(r);
+      else map.set(r.meterId, [r]);
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+    return map;
+  }, [readings]);
 
   const [metersCollapsed, setMetersCollapsed] = useState(() => localStorage.getItem(METERS_COLLAPSED_KEY) === "1");
 
@@ -237,27 +331,55 @@ export default function Dashboard() {
         </button>
 
         {!metersCollapsed && (
-          <div className="divide-y divide-border border-t border-b border-border mt-1">
+          <>
             {meters === undefined ? (
               <div className="text-muted text-sm py-3">Loading…</div>
             ) : sortedMeters.length === 0 ? (
               <div className="text-muted text-sm py-3">No meters yet.</div>
             ) : (
-              sortedMeters.map((m) => {
-                const last = latestReadingByMeter.get(m.id);
-                return (
-                  <Link key={m.id} to={`/meters/${m.id}`} className="block hover:bg-surface">
-                    <StatusRow
-                      title={m.name}
-                      meta={`${METER_TYPE_LABELS[m.type]} · ${last ? `last read ${formatDate(last.capturedAt)}` : "never read"}`}
-                      tone={dueMeters.some((d) => d.id === m.id) ? "danger" : "muted"}
-                      trailing={last ? `${formatValue(last.value)} ${m.unit}` : "—"}
-                    />
-                  </Link>
-                );
-              })
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                {sortedMeters.map((m) => {
+                  const last = latestReadingByMeter.get(m.id);
+                  const tone = dueMeters.some((d) => d.id === m.id) ? "danger" : "good";
+                  const history = (readingsByMeter.get(m.id) ?? []).slice(-8).map((r) => r.value);
+                  return (
+                    <Link
+                      key={m.id}
+                      to={`/meters/${m.id}`}
+                      className="group block border border-border bg-surface p-3 hover:border-accent transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0 text-muted group-hover:text-accent-strong transition-colors">
+                          <MeterTypeIcon type={m.type} />
+                          <div className="min-w-0">
+                            <div className="truncate text-ink">{m.name}</div>
+                            <div className="label-plate">{METER_TYPE_LABELS[m.type]}</div>
+                          </div>
+                        </div>
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0 mt-1"
+                          style={{ backgroundColor: METER_TONE_VAR[tone] }}
+                          title={tone === "danger" ? "Reading due" : "On track"}
+                        />
+                      </div>
+
+                      <div className="mt-3 flex items-end justify-between gap-2">
+                        <div className="font-mono">
+                          <span className="text-2xl leading-none">{last ? formatValue(last.value) : "—"}</span>
+                          {last && <span className="text-muted text-xs ml-1">{m.unit}</span>}
+                        </div>
+                        <Sparkline values={history} tone={tone} />
+                      </div>
+
+                      <div className="label-plate mt-2 text-muted">
+                        {last ? `Last read ${formatDate(last.capturedAt)}` : "Never read"}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
             )}
-          </div>
+          </>
         )}
       </section>
     </div>
