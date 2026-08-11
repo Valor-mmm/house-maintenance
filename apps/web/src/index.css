@@ -28,8 +28,16 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
 }
 
+/*
+  Theme: defaults to the OS preference (bare :root is the light palette,
+  this media query is the dark override); a manual choice from the
+  ThemeToggle in App.tsx stamps data-theme="light"/"dark" on <html> and
+  wins over the OS either way. :not([data-theme="light"]) is what lets an
+  explicit "light" choice override a dark system preference — without it
+  the media query would still apply regardless of the attribute.
+*/
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-bg: #16181b;
     --color-surface: #1d2024;
     --color-border: #33363c;
@@ -43,8 +51,28 @@
   }
 }
 
+:root[data-theme="dark"] {
+  --color-bg: #16181b;
+  --color-surface: #1d2024;
+  --color-border: #33363c;
+  --color-text: #ede9e0;
+  --color-text-muted: #96938c;
+  --color-accent: #e08a4c;
+  --color-accent-strong: #f0a468;
+  --color-good: #6fbf8b;
+  --color-warn: #d6b34c;
+  --color-danger: #e0776a;
+}
+
 html {
   color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {

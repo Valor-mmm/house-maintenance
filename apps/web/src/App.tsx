@@ -8,6 +8,7 @@ import Backups from "./routes/Backups";
 import Login from "./routes/Login";
 import { startSyncManager } from "./sync/engine";
 import { getToken, clearToken } from "./auth/token";
+import { getStoredTheme, applyTheme, nextTheme, type ThemeChoice } from "./theme";
 
 const navItems = [
   { to: "/", label: "Dashboard" },
@@ -53,6 +54,27 @@ function OfflineBadge() {
       <span className="w-1.5 h-1.5 rounded-full bg-muted" aria-hidden="true" />
       Offline — changes saved locally
     </span>
+  );
+}
+
+/** Cycles system -> light -> dark -> system. Persists via src/theme.ts,
+ * which index.html's inline script also reads on next load to avoid a
+ * flash of the wrong theme. */
+function ThemeToggle() {
+  const [theme, setTheme] = useState<ThemeChoice>(() => getStoredTheme());
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const next = nextTheme(theme);
+        applyTheme(next);
+        setTheme(next);
+      }}
+      className="label-plate hover:text-accent transition-colors"
+    >
+      Theme: {theme}
+    </button>
   );
 }
 
@@ -152,11 +174,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen flex flex-col bg-bg text-ink">
-        {/* Slim status strip — collapses to nothing when there's no session
-            and nothing offline to report, so it stays out of the way on
-            the login screen. */}
-        <div className="flex items-center justify-end gap-4 px-4 empty:hidden [&:not(:empty)]:py-1.5 [&:not(:empty)]:border-b [&:not(:empty)]:border-border">
+        {/* Slim status strip — always shows the theme toggle; the rest
+            (offline badge, logout) collapses away with nothing to report,
+            e.g. on the login screen. */}
+        <div className="flex items-center justify-end gap-4 px-4 py-1.5 border-b border-border">
           <OfflineBadge />
+          <ThemeToggle />
           <LogoutControl />
         </div>
         <InstallBanner />
