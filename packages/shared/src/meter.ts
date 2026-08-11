@@ -34,6 +34,19 @@ export const meterBaseSchema = z.object({
   unit: z.string().min(1),
   readingInterval: readingIntervalSchema,
   readingKind: readingKindSchema,
+  /**
+   * Optional per-meter warning bounds — most useful on `snapshot` meters
+   * (e.g. a heating/water pressure gauge) where the raw value itself, not
+   * a derived consumption, is what should stay in range. See
+   * `computePressureTrend` in `pressure-trend.ts` and
+   * docs/period-derivation.md "Pressure thresholds & decline trend".
+   * `null` means "no bound set" — never a sentinel like 0. Callers that
+   * set both must ensure `minThreshold < maxThreshold` themselves (see
+   * `apps/web/src/data/meters.ts`) — not enforced here so this schema
+   * stays a plain ZodObject that other schemas can `.merge`/`.extend`.
+   */
+  minThreshold: z.number().nullable(),
+  maxThreshold: z.number().nullable(),
 });
 
 export const meterSchema = meterBaseSchema.merge(syncMetaSchema);

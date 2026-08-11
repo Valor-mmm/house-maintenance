@@ -32,6 +32,8 @@ export const TABLE_SPECS: Record<SyncableTable, TableSpec> = {
       { key: "unit", column: "unit" },
       { key: "readingInterval", column: "reading_interval" },
       { key: "readingKind", column: "reading_kind" },
+      { key: "minThreshold", column: "min_threshold" },
+      { key: "maxThreshold", column: "max_threshold" },
     ],
   },
   meterGroups: {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
-import type { MeterType, Reading, ReadingInterval } from "@house/shared";
+import { computePressureTrend, type MeterType, type Reading, type ReadingInterval } from "@house/shared";
 import { db } from "../db/dexie";
 import GaugeTile from "../components/GaugeTile";
 import StatusRow, { type StatusRowProps } from "../components/StatusRow";
@@ -218,6 +218,19 @@ export default function Dashboard() {
     return map;
   }, [readings]);
 
+  // Pressure (or any meter with a min/max threshold) warning status — see
+  // packages/shared/src/pressure-trend.ts and docs/period-derivation.md
+  // "Pressure thresholds & decline trend". Computed client-side from the
+  // reading history already loaded above; not synced/server-side for v1.
+  const pressureStatusByMeter = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computePressureTrend>>();
+    for (const m of meters ?? []) {
+      if (m.minThreshold == null && m.maxThreshold == null) continue;
+      map.set(m.id, computePressureTrend(readingsByMeter.get(m.id) ?? [], m.minThreshold, m.maxThreshold));
+    }
+    return map;
+  }, [meters, readingsByMeter]);
+
   const [metersCollapsed, setMetersCollapsed] = useState(() => localStorage.getItem(METERS_COLLAPSED_KEY) === "1");
 
   function toggleMetersCollapsed() {
@@ -227,6 +240,15 @@ export default function Dashboard() {
       return next;
     });
   }
+
+  const pressureWarningMeters = useMemo(
+    () =>
+      (meters ?? []).filter((m) => {
+        const status = pressureStatusByMeter.get(m.id)?.status;
+        return status === "below_min" || status === "above_max" || status === "approaching_min" || status === "approaching_max";
+      }),
+    [meters, pressureStatusByMeter]
+  );
 
   const overdueCount = overdueTasks.length + dueMeters.length;
   const dueSoonCount = dueSoonTasks.length;
@@ -252,6 +274,21 @@ export default function Dashboard() {
         meta: `Reading due · ${m.type}`,
         tone: "danger",
         trailing: last ? `${daysBetween(new Date(last.capturedAt).getTime(), now)}d since last` : "never read",
+      };
+    }),
+    ...pressureWarningMeters.map((m): AttentionRow => {
+      const result = pressureStatusByMeter.get(m.id)!;
+      const danger = result.status === "below_min" || result.status === "above_max";
+      const trailing =
+        result.status === "below_min" || result.status === "above_max"
+          ? `${formatValue(result.latestValue ?? 0)} ${m.unit}`
+          : `≈${Math.round(result.daysUntilCrossing ?? 0)}d to ${result.status === "approaching_min" ? "min" : "max"}`;
+      return {
+        key: `pressure-${m.id}`,
+        title: `${m.name} ${danger ? "out of range" : "trending toward limit"}`,
+        meta: `Pressure · ${m.type}`,
+        tone: danger ? "danger" : "warn",
+        trailing,
       };
     }),
     ...dueSoonTasks.map((t): AttentionRow => {
@@ -340,7 +377,10 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                 {sortedMeters.map((m) => {
                   const last = latestReadingByMeter.get(m.id);
-                  const tone = dueMeters.some((d) => d.id === m.id) ? "danger" : "good";
+                  const pressureStatus = pressureStatusByMeter.get(m.id)?.status;
+                  const pressureDanger = pressureStatus === "below_min" || pressureStatus === "above_max";
+                  const pressureWarn = pressureStatus === "approaching_min" || pressureStatus === "approaching_max";
+                  const tone = pressureDanger || dueMeters.some((d) => d.id === m.id) ? "danger" : pressureWarn ? "warn" : "good";
                   const history = (readingsByMeter.get(m.id) ?? []).slice(-8).map((r) => r.value);
                   return (
                     <Link
@@ -359,7 +399,7 @@ export default function Dashboard() {
                         <span
                           className="w-2 h-2 rounded-full shrink-0 mt-1"
                           style={{ backgroundColor: METER_TONE_VAR[tone] }}
-                          title={tone === "danger" ? "Reading due" : "On track"}
+                          title={pressureDanger ? "Out of range" : pressureWarn ? "Trending toward limit" : tone === "danger" ? "Reading due" : "On track"}
                         />
                       </div>
 
@@ -374,6 +414,12 @@ export default function Dashboard() {
                       <div className="label-plate mt-2 text-muted">
                         {last ? `Last read ${formatDate(last.capturedAt)}` : "Never read"}
                       </div>
+                      {pressureWarn && (
+                        <div className="label-plate mt-1" style={{ color: "var(--color-warn)" }}>
+                          ≈{Math.round(pressureStatusByMeter.get(m.id)!.daysUntilCrossing ?? 0)}d to{" "}
+                          {pressureStatus === "approaching_min" ? "min" : "max"}
+                        </div>
+                      )}
                     </Link>
                   );
                 })}

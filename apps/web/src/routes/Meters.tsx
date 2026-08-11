@@ -47,6 +47,8 @@ function NewMeterForm({ onCreate }: { onCreate: () => void }) {
     defaultReadingKindForMeterType("electricity_in")
   );
   const [readingKindTouched, setReadingKindTouched] = useState(false);
+  const [minThreshold, setMinThreshold] = useState("");
+  const [maxThreshold, setMaxThreshold] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,6 +65,12 @@ function NewMeterForm({ onCreate }: { onCreate: () => void }) {
       setError("Fill in a name and unit.");
       return;
     }
+    const min = minThreshold.trim() ? Number(minThreshold) : null;
+    const max = maxThreshold.trim() ? Number(maxThreshold) : null;
+    if ((min != null && !Number.isFinite(min)) || (max != null && !Number.isFinite(max))) {
+      setError("Thresholds must be numbers.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -73,10 +81,14 @@ function NewMeterForm({ onCreate }: { onCreate: () => void }) {
         unit: unit.trim(),
         readingInterval,
         readingKind,
+        minThreshold: min,
+        maxThreshold: max,
       });
       setName("");
       setUnit("kWh");
       setReadingKindTouched(false);
+      setMinThreshold("");
+      setMaxThreshold("");
       onCreate();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create meter.");
@@ -150,6 +162,32 @@ function NewMeterForm({ onCreate }: { onCreate: () => void }) {
           </select>
         </label>
       </div>
+      {type === "pressure" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="grid gap-1">
+            <span className="label-plate">Min threshold (optional)</span>
+            <input
+              type="number"
+              step="any"
+              className="border border-border bg-bg px-2 py-1.5"
+              value={minThreshold}
+              onChange={(e) => setMinThreshold(e.target.value)}
+              placeholder="e.g. 1.0"
+            />
+          </label>
+          <label className="grid gap-1">
+            <span className="label-plate">Max threshold (optional)</span>
+            <input
+              type="number"
+              step="any"
+              className="border border-border bg-bg px-2 py-1.5"
+              value={maxThreshold}
+              onChange={(e) => setMaxThreshold(e.target.value)}
+              placeholder="e.g. 2.5"
+            />
+          </label>
+        </div>
+      )}
       {error && <div className="text-danger text-sm">{error}</div>}
       <button
         type="submit"

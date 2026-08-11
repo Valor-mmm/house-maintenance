@@ -9,4 +9,5 @@ export * from "./auth.js";
 export * from "./sync.js";
 export * from "./period.js";
 export * from "./period-derivation.js";
+export * from "./pressure-trend.js";
 export * from "./backup.js";
