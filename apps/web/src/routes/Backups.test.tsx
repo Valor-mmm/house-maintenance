@@ -63,7 +63,12 @@ describe("Backups", () => {
     listBackups.mockResolvedValue([completeBackup()]);
     render(<Backups />);
 
-    expect(await findByTextContent(/^Manual · 1 Jun 2024/)).toBeInTheDocument();
+    // The date itself is `toLocaleString(undefined, ...)` — deliberately
+    // locale-dependent on the real device, so intentionally not asserted
+    // exactly here (CI's ICU locale formats it differently than local
+    // dev: "Jun 1, 2024, 12:00 PM" vs "1 Jun 2024, 14:00"). Just confirm
+    // the row combines the backup's kind with *some* rendered date.
+    expect(await findByTextContent(/^Manual · .*2024/)).toBeInTheDocument();
     expect(screen.getByText(/complete · 512.0 KB · 2 photos/)).toBeInTheDocument();
   });
 
@@ -84,7 +89,12 @@ describe("Backups", () => {
     await user.click(screen.getByRole("button", { name: "Back up now" }));
 
     await waitFor(() => expect(runBackup).toHaveBeenCalledTimes(1));
-    expect(await findByTextContent(/^Manual · 1 Jun 2024/)).toBeInTheDocument();
+    // The date itself is `toLocaleString(undefined, ...)` — deliberately
+    // locale-dependent on the real device, so intentionally not asserted
+    // exactly here (CI's ICU locale formats it differently than local
+    // dev: "Jun 1, 2024, 12:00 PM" vs "1 Jun 2024, 14:00"). Just confirm
+    // the row combines the backup's kind with *some* rendered date.
+    expect(await findByTextContent(/^Manual · .*2024/)).toBeInTheDocument();
     expect(listBackups).toHaveBeenCalledTimes(2);
   });
 
