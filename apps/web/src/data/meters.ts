@@ -31,7 +31,22 @@ const UNSYNCED_UPDATED_AT = new Date(0).toISOString();
 
 export type CreateMeterInput = Omit<MeterCreateInput, "id">;
 
+/**
+ * Shared by createMeter/editMeter: a meter's minThreshold, if both bounds
+ * are set, must be strictly less than its maxThreshold — otherwise
+ * "approaching_min"/"approaching_max" in computePressureTrend
+ * (pressure-trend.ts) can never both be meaningful. Not enforced in the
+ * zod schema (meter.ts) so that schema stays a plain object other
+ * schemas can merge/extend.
+ */
+function validateThresholds(minThreshold: number | null, maxThreshold: number | null): void {
+  if (minThreshold != null && maxThreshold != null && minThreshold >= maxThreshold) {
+    throw new Error("Minimum threshold must be less than maximum threshold.");
+  }
+}
+
 export async function createMeter(input: CreateMeterInput): Promise<Meter> {
+  validateThresholds(input.minThreshold, input.maxThreshold);
   const id = crypto.randomUUID();
   const meter: Meter = {
     id,
@@ -52,6 +67,8 @@ export interface EditMeterInput {
   unit?: string;
   readingInterval?: Meter["readingInterval"];
   readingKind?: Meter["readingKind"];
+  minThreshold?: number | null;
+  maxThreshold?: number | null;
 }
 
 /**
@@ -100,6 +117,9 @@ export async function editMeter(id: string, patch: EditMeterInput): Promise<Mete
       );
     }
   }
+  const minThreshold = patch.minThreshold !== undefined ? patch.minThreshold : existing.minThreshold;
+  const maxThreshold = patch.maxThreshold !== undefined ? patch.maxThreshold : existing.maxThreshold;
+  validateThresholds(minThreshold, maxThreshold);
   const updated: Meter = {
     ...existing,
     name: patch.name ?? existing.name,
@@ -107,6 +127,8 @@ export async function editMeter(id: string, patch: EditMeterInput): Promise<Mete
     unit: patch.unit ?? existing.unit,
     readingInterval: patch.readingInterval ?? existing.readingInterval,
     readingKind: patch.readingKind ?? existing.readingKind,
+    minThreshold,
+    maxThreshold,
   };
   await db.transaction("rw", db.meters, db.outbox, async () => {
     await db.meters.put(updated);

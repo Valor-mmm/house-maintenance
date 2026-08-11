@@ -16,11 +16,13 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceLine,
 } from "recharts";
 import {
   computeMonthlySeries,
   computePeriodStats,
   computeGroupSeries,
+  computePressureTrend,
   meterEventTypeSchema,
   meterTypeSchema,
   readingIntervalSchema,
@@ -247,7 +249,17 @@ function MonthOverYearChart({
   );
 }
 
-function TrendChart({ readings, unit }: { readings: Reading[]; unit: string }) {
+function TrendChart({
+  readings,
+  unit,
+  minThreshold,
+  maxThreshold,
+}: {
+  readings: Reading[];
+  unit: string;
+  minThreshold: number | null;
+  maxThreshold: number | null;
+}) {
   const sorted = [...readings].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
   const data = sorted.map((r) => ({ date: formatDate(r.capturedAt), value: r.value }));
   if (data.length === 0) {
@@ -264,9 +276,60 @@ function TrendChart({ readings, unit }: { readings: Reading[]; unit: string }) {
           <Tooltip
             contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
           />
+          {minThreshold != null && (
+            <ReferenceLine
+              y={minThreshold}
+              stroke="var(--color-danger)"
+              strokeDasharray="4 3"
+              label={{ value: `min ${minThreshold}`, fill: "var(--color-danger)", fontSize: 11, position: "insideBottomLeft" }}
+            />
+          )}
+          {maxThreshold != null && (
+            <ReferenceLine
+              y={maxThreshold}
+              stroke="var(--color-danger)"
+              strokeDasharray="4 3"
+              label={{ value: `max ${maxThreshold}`, fill: "var(--color-danger)", fontSize: 11, position: "insideTopLeft" }}
+            />
+          )}
           <Line type="monotone" dataKey="value" stroke="var(--color-accent)" dot={{ r: 2 }} />
         </LineChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+const PRESSURE_STATUS_COPY: Record<string, { label: string; tone: "good" | "warn" | "danger" }> = {
+  ok: { label: "Within range", tone: "good" },
+  approaching_min: { label: "Trending toward minimum", tone: "warn" },
+  approaching_max: { label: "Trending toward maximum", tone: "warn" },
+  below_min: { label: "Below minimum threshold", tone: "danger" },
+  above_max: { label: "Above maximum threshold", tone: "danger" },
+};
+
+/** Only rendered once at least one threshold is set (see MeterDetailView). */
+function PressureStatusCallout({ readings, minThreshold, maxThreshold }: {
+  readings: Reading[];
+  minThreshold: number | null;
+  maxThreshold: number | null;
+}) {
+  const result = computePressureTrend(readings, minThreshold, maxThreshold);
+  if (result.status === "no_data" || result.status === "no_thresholds") return null;
+  const copy = PRESSURE_STATUS_COPY[result.status];
+  const toneVar =
+    copy.tone === "danger" ? "var(--color-danger)" : copy.tone === "warn" ? "var(--color-warn)" : "var(--color-good)";
+  return (
+    <div className="border border-border bg-surface p-4 mb-6 flex items-center gap-3" style={{ borderLeftColor: toneVar, borderLeftWidth: 4 }}>
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: toneVar }} aria-hidden="true" />
+      <div className="min-w-0">
+        <div className="label-plate">{copy.label}</div>
+        {(result.status === "approaching_min" || result.status === "approaching_max") && result.daysUntilCrossing != null && (
+          <p className="text-sm mt-0.5">
+            At the current rate, expected to cross in ≈{Math.round(result.daysUntilCrossing)} day
+            {Math.round(result.daysUntilCrossing) === 1 ? "" : "s"} ({formatDate(result.predictedCrossingAt!)}).
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -658,6 +721,8 @@ function EditMeterForm({ meter, onDone }: { meter: Meter; onDone: () => void }) 
   const [unit, setUnit] = useState(meter.unit);
   const [readingInterval, setReadingInterval] = useState<ReadingInterval>(meter.readingInterval);
   const [readingKind, setReadingKind] = useState<ReadingKind>(meter.readingKind);
+  const [minThreshold, setMinThreshold] = useState(meter.minThreshold != null ? String(meter.minThreshold) : "");
+  const [maxThreshold, setMaxThreshold] = useState(meter.maxThreshold != null ? String(meter.maxThreshold) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -668,10 +733,24 @@ function EditMeterForm({ meter, onDone }: { meter: Meter; onDone: () => void }) 
       setError("Fill in a name and unit.");
       return;
     }
+    const min = minThreshold.trim() ? Number(minThreshold) : null;
+    const max = maxThreshold.trim() ? Number(maxThreshold) : null;
+    if ((min != null && !Number.isFinite(min)) || (max != null && !Number.isFinite(max))) {
+      setError("Thresholds must be numbers.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await editMeter(meter.id, { name: name.trim(), type, unit: unit.trim(), readingInterval, readingKind });
+      await editMeter(meter.id, {
+        name: name.trim(),
+        type,
+        unit: unit.trim(),
+        readingInterval,
+        readingKind,
+        minThreshold: min,
+        maxThreshold: max,
+      });
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save meter.");
@@ -758,6 +837,32 @@ function EditMeterForm({ meter, onDone }: { meter: Meter; onDone: () => void }) 
           </select>
         </label>
       </div>
+      {type === "pressure" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="grid gap-1">
+            <span className="label-plate">Min threshold (optional)</span>
+            <input
+              type="number"
+              step="any"
+              className="border border-border bg-bg px-2 py-1.5"
+              value={minThreshold}
+              onChange={(e) => setMinThreshold(e.target.value)}
+              placeholder="e.g. 1.0"
+            />
+          </label>
+          <label className="grid gap-1">
+            <span className="label-plate">Max threshold (optional)</span>
+            <input
+              type="number"
+              step="any"
+              className="border border-border bg-bg px-2 py-1.5"
+              value={maxThreshold}
+              onChange={(e) => setMaxThreshold(e.target.value)}
+              placeholder="e.g. 2.5"
+            />
+          </label>
+        </div>
+      )}
       {error && <div className="text-danger text-sm">{error}</div>}
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-2">
@@ -841,7 +946,20 @@ function MeterDetailView({ meter }: { meter: Meter }) {
       <LogReadingForm meterId={meter.id} unit={meter.unit} />
       <LogMeterEventForm meterId={meter.id} />
 
-      <TrendChart readings={readingList} unit={meter.unit} />
+      {(meter.minThreshold != null || meter.maxThreshold != null) && (
+        <PressureStatusCallout
+          readings={readingList}
+          minThreshold={meter.minThreshold}
+          maxThreshold={meter.maxThreshold}
+        />
+      )}
+
+      <TrendChart
+        readings={readingList}
+        unit={meter.unit}
+        minThreshold={meter.minThreshold}
+        maxThreshold={meter.maxThreshold}
+      />
 
       {isCumulative && (
         <>

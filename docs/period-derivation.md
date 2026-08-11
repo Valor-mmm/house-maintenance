@@ -115,6 +115,49 @@ missing member as zero. (Never subtract raw reading values directly
 between meters; each meter's own delta must be derived independently
 first, because they may have different reading cadences.)
 
+## Pressure thresholds & decline trend
+
+A meter may optionally carry `minThreshold`/`maxThreshold` (`meter.ts`,
+nullable, no default) — most useful on `snapshot` meters like a
+heating/water pressure gauge, where the raw value itself, not a derived
+consumption, is what should stay in range. This is a **separate**
+algorithm from Steps 1–4 above: it operates on raw reading values
+directly (never derived consumption), and unlike anomaly detection it is
+**not** restricted to `cumulative` meters — it applies to any meter with
+thresholds set, though in practice that's expected to mean `snapshot`
+(pressure) meters. Implemented once in
+`packages/shared/src/pressure-trend.ts`, client-side only for v1 (no
+server cron / push involvement — see below).
+
+1. Take the meter's non-deleted readings, sorted by `capturedAt`.
+2. If there are no readings: `status = "no_data"`.
+3. If neither threshold is set: `status = "no_thresholds"` (still
+   reports `latestValue`/`slopePerDay` if computable, for display).
+4. If the latest reading is already at or past a set bound
+   (`value <= minThreshold` or `value >= maxThreshold`): `status =
+   "below_min"` / `"above_max"` — already crossed, trend is irrelevant.
+5. Otherwise, fit a least-squares line (value vs. days elapsed) over the
+   last `trendWindowSize` readings (default **10**), requiring at least
+   `minPointsForTrend` (default **3**) points in that window; fewer than
+   that yields `slopePerDay = null` (not enough signal to predict).
+6. If a slope exists and points toward a set bound (negative slope
+   toward `minThreshold`, positive toward `maxThreshold`), project when
+   `value` reaches that bound:
+   `daysUntilCrossing = (threshold - latestValue) / slopePerDay`.
+   Only surface it (`status = "approaching_min"` / `"approaching_max"`)
+   if that's positive and within `warnWithinDays` (default **30**) — a
+   near-zero slope projecting a crossing centuries out is not a
+   meaningful warning.
+7. Otherwise `status = "ok"`.
+
+**Not synced to the server / not in the daily cron**: unlike anomaly
+detection, this is computed client-side from whatever readings are
+already in Dexie (Dashboard and MeterDetail both already load the full
+reading history) — a deliberate v1 scope cut, no push notification for
+pressure warnings yet. `minThreshold`/`maxThreshold` themselves *are*
+synced (they're plain meter columns), so the bounds are consistent
+across devices even though the warning computation isn't server-side.
+
 ## Worked example (for implementer tests)
 
 Water meter, `maxInterpolationGap = 45d`, `nearTolerance = 3d`:
