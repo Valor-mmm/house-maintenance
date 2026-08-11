@@ -15,9 +15,10 @@
     "build:shared": "npm run build --workspace=packages/shared",
     "build:server-lib": "npm run build --workspace=packages/server-lib",
     "vercel-build": "npm run build:shared && npm run build:server-lib && npm run build:web",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:internal-packages": "npm run build:shared && npm run build:server-lib",
+    "typecheck": "npm run build:internal-packages && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run build:internal-packages && npm run test --workspaces --if-present",
     "db:migrate": "node db/migrate.mjs",
     "db:seed-user": "node db/seed-user.mjs"
   },
