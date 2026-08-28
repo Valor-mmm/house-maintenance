@@ -157,7 +157,12 @@ export default function ReadingPhoto({
           </div>
         )}
         {exifLine && <div className="label-plate text-muted mt-0.5">{exifLine}</div>}
-        {state.kind === "failed" && (
+        {/* Offered for every unfinished state, not just "failed": a record
+            can sit in "uploading" left over from a session that was killed
+            mid-upload, which is not actually in flight and would otherwise
+            have no way out. `startPhotoUploadManager` re-drives these on
+            its own too — this is the impatient path. */}
+        {state.kind !== "uploaded" && (
           <button
             type="button"
             onClick={() => void handleRetry()}

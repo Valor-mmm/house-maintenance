@@ -152,8 +152,9 @@ describe("MeterDetail reading photos", () => {
     await db.photoBlobs.add(localPhoto("uploaded"));
     renderMeterDetail("meter-1");
 
-    const img = await screen.findByRole("img");
-    expect(img).toHaveAttribute("src", OBJECT_URL);
+    // The object URL is created in an effect, so the first paint still
+    // shows the remote URL — waitFor, or this races the effect.
+    await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("src", OBJECT_URL));
     // The Blob URL is still what proves it reached the server.
     expect(screen.getByText("Photo uploaded")).toBeInTheDocument();
   });
@@ -164,9 +165,19 @@ describe("MeterDetail reading photos", () => {
     await db.photoBlobs.add(localPhoto("pending"));
     renderMeterDetail("meter-1");
 
-    expect(await screen.findByRole("img")).toHaveAttribute("src", OBJECT_URL);
+    await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("src", OBJECT_URL));
     expect(screen.getByText(/Not uploaded yet/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Retry upload" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry upload" })).toBeInTheDocument();
+  });
+
+  it("offers a retry for a photo stranded mid-upload by a killed session", async () => {
+    await db.meters.add(meter({ id: "meter-1", name: "Main electricity", unit: "kWh" }));
+    await db.readings.add(reading({ id: "reading-1", meterId: "meter-1", value: 100 }));
+    await db.photoBlobs.add(localPhoto("uploading"));
+    renderMeterDetail("meter-1");
+
+    expect(await screen.findByText(/Uploading/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry upload" })).toBeInTheDocument();
   });
 
   it("offers a retry for a failed upload", async () => {
