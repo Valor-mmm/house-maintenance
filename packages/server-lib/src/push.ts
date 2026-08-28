@@ -19,7 +19,20 @@ function ensureConfigured(): void {
 export interface PushPayload {
   title: string;
   body: string;
+  /** Same-origin path the notification opens when tapped, e.g. "/meters". */
   url?: string;
+  /**
+   * Notification collapse key. Two notifications sharing a tag replace
+   * each other on the device instead of stacking. Only set it where
+   * replacing is genuinely correct: a "notify once, ever" notification
+   * (tasks, anomaly flags) that got collapsed into a later one would be
+   * lost for good, since nothing ever re-sends it — those use a per-row
+   * tag, not a shared one. See the call sites in api/cron.ts.
+   *
+   * Consumed by apps/web/src/sw-notification.ts, which mirrors this
+   * shape (apps/web can't import from this package's consumers).
+   */
+  tag?: string;
 }
 
 export type SendPushResult =

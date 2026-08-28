@@ -127,6 +127,21 @@ const ANOMALY_ABSOLUTE_FLOOR_BY_METER_TYPE: Record<MeterType, number> = {
 /** Meter groups have no `type`, only a unit — flat floor, same reasoning as above. */
 const GROUP_ANOMALY_ABSOLUTE_FLOOR = 1;
 
+/** How many meter names the batched "readings due" body spells out before summarising. */
+const DUE_METER_NAMES_IN_BODY = 3;
+
+function describeDueMeters(due: { name: string; last_captured_at: Date | null }[]): string {
+  if (due.length === 1) {
+    const [m] = due;
+    return m.last_captured_at
+      ? `${m.name} hasn't been read since ${m.last_captured_at.toISOString().slice(0, 10)}.`
+      : `${m.name} has never been read.`;
+  }
+  const named = due.slice(0, DUE_METER_NAMES_IN_BODY).map((m) => m.name);
+  const rest = due.length - named.length;
+  return rest > 0 ? `${named.join(", ")} and ${rest} more.` : `${named.join(", ")}.`;
+}
+
 function firstOfMonthUtc(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
@@ -187,7 +202,12 @@ async function runDailySweep(res: VercelResponse): Promise<void> {
      * correctly avoids marking a backlog "notified" before push is ever
      * set up (delivered stays false when subs.length === 0).
      */
-    async function sendToAll(payload: { title: string; body: string; url?: string }): Promise<{ delivered: boolean }> {
+    async function sendToAll(payload: {
+      title: string;
+      body: string;
+      url?: string;
+      tag?: string;
+    }): Promise<{ delivered: boolean }> {
       const result = await sendPushToAll(pool, subs, payload);
       summary.pushSent += result.sent;
       summary.pushRemoved += result.removed;
@@ -222,6 +242,13 @@ async function runDailySweep(res: VercelResponse): Promise<void> {
           ? `${t.task_name} is overdue (was due ${t.due_date.toISOString().slice(0, 10)}).`
           : `${t.task_name} is due ${t.due_date.toISOString().slice(0, 10)}.`,
         url: "/tasks",
+        // Per-instance, deliberately not a shared "tasks" tag: these are
+        // sent once per instance and never again, so collapsing two of
+        // them into one notification would silently drop a task the user
+        // will never be told about again. A per-instance tag still
+        // guards the case that matters — the same task somehow being
+        // re-sent — without hiding a different one.
+        tag: `task-${t.id}`,
       });
       if (delivered) notifiedTaskIds.push(t.id);
     }
@@ -236,9 +263,15 @@ async function runDailySweep(res: VercelResponse): Promise<void> {
     // No dedup table for this one (v1 simplification, deliberately not
     // decided silently — see report): a standing "reading is due"
     // condition will push once per day, every day, until a new reading is
-    // logged. Whether that's the desired product behavior (vs. once-only
-    // like tasks) is an open question flagged in the report, not resolved
-    // here.
+    // logged. That daily repeat is what makes this the app's de-facto
+    // recurring "go read the meters" reminder, and it's also why the
+    // notification carries a shared collapse tag below.
+    //
+    // One push for all due meters, not one per meter: a household reads
+    // its meters in a single trip, and on the first sweep after an
+    // interval elapses several meters typically come due together —
+    // which used to mean several near-identical notifications in the
+    // same minute.
     const { rows: meterDueRows } = await pool.query<{
       id: string;
       name: string;
@@ -252,19 +285,26 @@ async function runDailySweep(res: VercelResponse): Promise<void> {
     );
     summary.readingsChecked = meterDueRows.length;
 
-    for (const m of meterDueRows) {
+    const dueMeters = meterDueRows.filter((m) => {
       const intervalDays = READING_INTERVAL_DAYS[m.reading_interval];
-      const isDue =
-        m.last_captured_at == null || now.getTime() - m.last_captured_at.getTime() >= intervalDays * DAY_MS;
-      if (!isDue) continue;
+      return (
+        m.last_captured_at == null ||
+        now.getTime() - m.last_captured_at.getTime() >= intervalDays * DAY_MS
+      );
+    });
+    if (dueMeters.length > 0) {
       const { delivered } = await sendToAll({
-        title: "Meter reading due",
-        body: m.last_captured_at
-          ? `${m.name} hasn't been read since ${m.last_captured_at.toISOString().slice(0, 10)}.`
-          : `${m.name} has never been read.`,
+        title:
+          dueMeters.length === 1 ? "Meter reading due" : `${dueMeters.length} meter readings due`,
+        body: describeDueMeters(dueMeters),
         url: "/meters",
+        // A shared tag is right here, unlike for tasks: this condition
+        // re-pushes every day anyway, so today's notification replacing
+        // yesterday's loses nothing and keeps the shade from filling up
+        // with identical copies over a long absence.
+        tag: "reading-due",
       });
-      if (delivered) summary.readingsDueNotified++;
+      if (delivered) summary.readingsDueNotified = dueMeters.length;
     }
 
     // --- 3. anomalies (cumulative meters + meter groups) ---
@@ -337,6 +377,9 @@ async function runDailySweep(res: VercelResponse): Promise<void> {
         title: "Consumption anomaly",
         body: `${target.label}: ${Math.round(result.pctOver * 100)}% above trend for ${period.periodStart.slice(0, 7)}.`,
         url: "/meters",
+        // Per-flag, for the same reason as the task tag above: one
+        // notification per flag, ever.
+        tag: `anomaly-${flag.id}`,
       });
       if (delivered) {
         await pool.query(`UPDATE anomaly_flags SET notified_at = now() WHERE id = $1`, [flag.id]);
@@ -443,7 +486,9 @@ async function runBackupCron(res: VercelResponse): Promise<void> {
     if (!pushConfigured) return;
     try {
       const subs = await loadPushSubscriptions(pool);
-      const result = await sendPushToAll(pool, subs, { title, body, url: "/backups" });
+      // Shared tag: the backup runs weekly and the newest result is the
+      // only one worth looking at, so it should replace its predecessor.
+      const result = await sendPushToAll(pool, subs, { title, body, url: "/backups", tag: "backup" });
       summary.pushDelivered = result.delivered;
     } catch (err) {
       console.error("backup cron: failed to send push notification", err);
