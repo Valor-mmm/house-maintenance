@@ -11,5 +11,8 @@
     "declarationMap": false,
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  // src/sw.ts is checked by tsconfig.worker.json instead: it needs the
+  // WebWorker lib, which can't coexist with DOM in one program.
+  "include": ["src"],
+  "exclude": ["src/sw.ts"]
 }

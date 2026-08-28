@@ -8,6 +8,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // injectManifest, not generateSW: the app needs its own `push` and
+      // `notificationclick` handlers (src/sw.ts). generateSW emits a
+      // worker with neither, which is why every push this app has ever
+      // sent showed up as Chrome's generic placeholder. The precaching
+      // generateSW used to set up is reproduced by hand in src/sw.ts.
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {
@@ -40,11 +48,13 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
+      injectManifest: {
         // App shell + static assets are precached; API/sync calls are
         // never cached here — Dexie is the offline data layer, not the
-        // service worker cache. See docs/sync-design.md.
-        navigateFallback: "/index.html",
+        // service worker cache. See docs/sync-design.md. The matching
+        // navigation fallback to /index.html now lives in src/sw.ts,
+        // which is where injectManifest expects that wiring.
+        //
         // woff2/woff included so the self-hosted design typefaces are
         // available fully offline, not just app code — see the design
         // notes in src/index.css.

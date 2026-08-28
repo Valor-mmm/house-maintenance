@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    // The service worker needs the WebWorker lib, and TypeScript can't
+    // load it alongside DOM in one program — the two redeclare dozens of
+    // the same globals ("Duplicate identifier"). Hence a second project
+    // for the single file, rather than widening tsconfig.json's lib.
+    "lib": ["ES2022", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["vite/client"]
+  },
+  "include": ["src/sw.ts", "src/sw-notification.ts"]
+}

@@ -92,7 +92,12 @@ which this setup gives you automatically.
     -H "Authorization: Bearer $CRON_SECRET"
   ```
   Check the JSON summary it returns, and confirm a real push notification
-  arrives on your phone.
+  arrives on your phone. It should show the app's own wording ("Meter
+  reading due", "2 meter readings due", ...) rather than Chrome's generic
+  "site updated in the background" placeholder, and tapping it should
+  open the page it refers to — both come from the service worker in
+  `apps/web/src/sw.ts`. If you see the placeholder, the deployed build
+  didn't pick up that worker.
 - Same for the weekly backup job (see the Backups page in the app for the
   manual/restore side of this feature):
   ```
