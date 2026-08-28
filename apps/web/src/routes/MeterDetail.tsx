@@ -38,7 +38,7 @@ import {
   type Reading,
   type PeriodConsumption,
 } from "@house/shared";
-import { db } from "../db/dexie";
+import { db, type LocalPhotoBlob } from "../db/dexie";
 import GaugeTile from "../components/GaugeTile";
 import StatusRow from "../components/StatusRow";
 import { createReading, editReading, deleteReading } from "../data/readings";
@@ -51,6 +51,7 @@ import {
   removeMeterGroupMember,
 } from "../data/meters";
 import { extractExif, storeLocalPhoto, uploadPendingPhoto } from "../data/photos";
+import ReadingPhoto from "../components/ReadingPhoto";
 
 const METER_TYPES = meterTypeSchema.options;
 const READING_INTERVALS = readingIntervalSchema.options;
@@ -417,10 +418,11 @@ function EditReadingForm({ reading, onDone }: EditReadingFormProps) {
   );
 }
 
-function ReadingsList({ readings, unit, photoStatusByReading }: {
+function ReadingsList({ readings, unit, localPhotoByReading }: {
   readings: Reading[];
   unit: string;
-  photoStatusByReading: Map<string, string>;
+  /** The whole local record, not just its status — `ReadingPhoto` needs the bytes to render offline. */
+  localPhotoByReading: Map<string, LocalPhotoBlob>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -444,17 +446,20 @@ function ReadingsList({ readings, unit, photoStatusByReading }: {
       ) : (
         <div className="divide-y divide-border">
           {sorted.map((r) => {
-            const photoStatus = photoStatusByReading.get(r.id);
-            const trailingBits = [
-              r.photoBlobUrl ? "photo" : photoStatus && photoStatus !== "uploaded" ? `photo: ${photoStatus}` : null,
-            ].filter(Boolean);
+            const localPhoto = localPhotoByReading.get(r.id);
             return (
               <div key={r.id} className="px-4">
                 <StatusRow
                   title={`${fmt(r.value)} ${unit}`}
                   meta={`${formatDate(r.capturedAt)}${r.note ? ` · ${r.note}` : ""}`}
                   tone="muted"
-                  trailing={trailingBits.join(" ") || undefined}
+                />
+                <ReadingPhoto
+                  readingId={r.id}
+                  photoBlobUrl={r.photoBlobUrl}
+                  photoExif={r.photoExif}
+                  localPhoto={localPhoto}
+                  capturedAtLabel={formatDate(r.capturedAt)}
                 />
                 {editingId === r.id ? (
                   <EditReadingForm reading={r} onDone={() => setEditingId(null)} />
@@ -905,7 +910,7 @@ function MeterDetailView({ meter }: { meter: Meter }) {
 
   const readingList = readings ?? [];
   const eventList: MeterEvent[] = events ?? [];
-  const photoStatusByReading = new Map((photoBlobs ?? []).map((p) => [p.readingId, p.uploadStatus]));
+  const localPhotoByReading = new Map((photoBlobs ?? []).map((p) => [p.readingId, p]));
 
   const isCumulative = meter.readingKind === "cumulative";
   const rangeStartIso = monthInputToIsoStart(range.fromMonth);
@@ -982,7 +987,7 @@ function MeterDetailView({ meter }: { meter: Meter }) {
         </>
       )}
 
-      <ReadingsList readings={readingList} unit={meter.unit} photoStatusByReading={photoStatusByReading} />
+      <ReadingsList readings={readingList} unit={meter.unit} localPhotoByReading={localPhotoByReading} />
     </div>
   );
 }
