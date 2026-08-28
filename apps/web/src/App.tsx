@@ -8,6 +8,7 @@ import Tasks from "./routes/Tasks";
 import Backups from "./routes/Backups";
 import Login from "./routes/Login";
 import { startSyncManager } from "./sync/engine";
+import { startPhotoUploadManager } from "./data/photos";
 import { hasSession, logout } from "./auth/token";
 import { getStoredTheme, applyTheme, nextTheme, type ThemeChoice } from "./theme";
 
@@ -168,8 +169,15 @@ function InstallBanner() {
 
 export default function App() {
   useEffect(() => {
-    const stop = startSyncManager();
-    return stop;
+    const stopSync = startSyncManager();
+    // Photo bytes live outside the sync engine (docs/sync-design.md
+    // "Photo attach"), so they need their own resume loop — otherwise an
+    // upload interrupted by the page going away is stranded forever.
+    const stopPhotoUploads = startPhotoUploadManager();
+    return () => {
+      stopSync();
+      stopPhotoUploads();
+    };
   }, []);
 
   return (
